@@ -4,4 +4,4 @@
 pyyaml>=6.0
 
 # Vendo SDK — pinned at the inaugural release. Bumping requires a deliberate commit.
-vendo-sdk @ git+https://github.com/runvendo/vendo-sdk-py@v0.1.0
+vendo-sdk @ git+https://github.com/runvendo/vendo-sdk-py@feat/connections-v0.2
