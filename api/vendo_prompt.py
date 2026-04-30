@@ -4,12 +4,14 @@ from __future__ import annotations
 from typing import Iterable, Protocol
 
 from api import vendo_catalog
+from api.vendo_env import _conn_fields
 
 
 class _ConnectionLike(Protocol):
+    """Tolerant duck-type for SDK Connection across versions; see
+    api.vendo_env._conn_fields for the field-flattening contract."""
     slug: str
     display_name: str
-    fields: dict
 
 
 def build_block(connections: Iterable[_ConnectionLike]) -> str:
@@ -27,7 +29,7 @@ def build_block(connections: Iterable[_ConnectionLike]) -> str:
         meta = vendo_catalog.lookup(conn.slug) or {}
         native_map = meta.get("native_env_map", {})
         docs_url = meta.get("docs_url")
-        for field_name in (conn.fields or {}).keys():
+        for field_name in _conn_fields(conn).keys():
             ns = f"VENDO_CONN_{conn.slug.upper()}_{field_name.upper()}"
             native = native_map.get(field_name)
             if native:
