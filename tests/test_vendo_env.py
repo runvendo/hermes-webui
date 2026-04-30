@@ -5,7 +5,16 @@ from dataclasses import dataclass, field
 import pytest
 pytestmark = pytest.mark.no_server
 
+from api import vendo_env
 from api.vendo_env import hydrate, unhydrate
+
+
+@pytest.fixture(autouse=True)
+def reset_native_tracker():
+    """Reset module-level state so tests don't leak ownership info between runs."""
+    vendo_env._VENDO_SET_NATIVE.clear()
+    yield
+    vendo_env._VENDO_SET_NATIVE.clear()
 
 
 @dataclass

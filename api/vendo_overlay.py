@@ -25,38 +25,48 @@ def _connected_slugs() -> frozenset[str]:
         return frozenset()
 
 
-def _upstream_resolver(name: str):
+def _upstream_resolver(requested):
     """Indirection for tests — defaults to hermes_cli's resolver."""
     try:
         from hermes_cli.runtime_provider import resolve_runtime_provider
-        return resolve_runtime_provider(name)
+        return resolve_runtime_provider(requested=requested)
     except Exception:
         logger.debug("hermes_cli.runtime_provider unavailable", exc_info=True)
         return None
 
 
-def resolve_runtime_provider_with_vendo(name: str) -> Optional[dict]:
+def resolve_runtime_provider_with_vendo(requested) -> Optional[dict]:
     """Drop-in replacement for hermes_cli.runtime_provider.resolve_runtime_provider.
 
-    If `name` is an AI slug connected via Vendo, return Vendo proxy config.
-    Otherwise, return whatever upstream returns.
+    Matches upstream signature: `requested` is the provider id (or None to
+    use the default). When the resolved slug is an AI slug connected via
+    Vendo, swap api_key + base_url for Vendo's proxy. Otherwise pass through.
     """
-    upstream = _upstream_resolver(name)
+    upstream = _upstream_resolver(requested)
 
-    if name not in vendo_catalog.AI_SLUGS:
+    # The slug we evaluate against the Vendo catalog is the one upstream
+    # actually resolved (it may have defaulted from None to the user's
+    # active provider). Fall back to `requested` when upstream returned None.
+    slug = None
+    if isinstance(upstream, dict):
+        slug = upstream.get("provider") or requested
+    else:
+        slug = requested
+
+    if slug not in vendo_catalog.AI_SLUGS:
         return upstream
 
-    if name not in _connected_slugs():
+    if slug not in _connected_slugs():
         return upstream
 
-    meta = vendo_catalog.lookup(name) or {}
+    meta = vendo_catalog.lookup(slug) or {}
     proxy_url = meta.get("proxy_url")
     api_key = os.environ.get("VENDO_API_KEY")
 
     if not proxy_url or not api_key:
         logger.warning(
             "vendo overlay skipped for %s: proxy_url=%s api_key_set=%s",
-            name, bool(proxy_url), bool(api_key),
+            slug, bool(proxy_url), bool(api_key),
         )
         return upstream
 
