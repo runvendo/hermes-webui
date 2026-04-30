@@ -157,11 +157,15 @@ function _renderVendoPanelIdentity() {
       const name = ident.name || ident.email.split('@')[0];
       const initials = (name || '?').split(/\s+/).slice(0, 2).map(s => s[0] || '').join('').toUpperCase() || '?';
       const role = ident.role ? ` · ${esc(ident.role)}` : '';
+      const ssoPill = ident.is_vendo_sso
+        ? '<span class="vendo-panel-identity-pill">Vendo SSO</span>'
+        : '';
       el.innerHTML = `
         <div class="vendo-panel-identity-disc">${esc(initials)}</div>
-        <div>
+        <div class="vendo-panel-identity-text">
           <div class="vendo-panel-identity-name">${esc(name)}</div>
           <div class="vendo-panel-identity-sub">${esc(ident.email)}${role}</div>
+          ${ssoPill}
         </div>
       `;
     })
