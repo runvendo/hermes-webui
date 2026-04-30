@@ -789,6 +789,10 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/providers":
         return j(handler, get_providers())
 
+    if parsed.path == "/api/connections":
+        from api.connections import handle_connections
+        return handle_connections(handler)
+
     if parsed.path == "/api/settings":
         settings = load_settings()
         # Never expose the stored password hash to clients
