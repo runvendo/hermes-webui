@@ -2770,3 +2770,13 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
   font-weight: 600;
   font-size: 16px;
 }
+
+.integration-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.integration-card-body {
+  flex: 1;
+  min-width: 0;
+}

@@ -3250,6 +3250,11 @@ function _buildIntegrationCard(c){
   card.className = 'integration-card';
   card.dataset.slug = c.slug;
 
+  card.appendChild(_buildVendoLogoTile(c));
+
+  const body = document.createElement('div');
+  body.className = 'integration-card-body';
+
   const head = document.createElement('div');
   head.className = 'integration-card-head';
   const name = document.createElement('div');
@@ -3273,12 +3278,12 @@ function _buildIntegrationCard(c){
     pill.textContent = 'Available';
   }
   head.appendChild(pill);
-  card.appendChild(head);
+  body.appendChild(head);
 
   const meta = document.createElement('div');
   meta.className = 'integration-card-meta';
   meta.textContent = _describeConnection(c);
-  card.appendChild(meta);
+  body.appendChild(meta);
 
   const actions = document.createElement('div');
   actions.className = 'integration-card-actions';
@@ -3302,8 +3307,9 @@ function _buildIntegrationCard(c){
     };
     actions.appendChild(btn);
   }
-  card.appendChild(actions);
+  body.appendChild(actions);
 
+  card.appendChild(body);
   return card;
 }
 
