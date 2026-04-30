@@ -2672,17 +2672,17 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
 
 /* ── Top-level Vendo panel ─────────────────────────────────────────────── */
 .nav-tab-vendo-logo {
-  height: 18px;
-  width: auto;
-  max-width: 36px;
+  width: 22px;
+  height: 22px;
   object-fit: contain;
-  filter: brightness(1.05);
+  display: block;
   opacity: 0.85;
 }
 .nav-tab.active .nav-tab-vendo-logo,
 .nav-tab:hover .nav-tab-vendo-logo {
   opacity: 1;
 }
+.rail-btn .nav-tab-vendo-logo { width: 24px; height: 24px; }
 
 .vendo-panel-identity {
   padding: 12px 16px;
