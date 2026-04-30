@@ -2789,8 +2789,12 @@ async function loadProvidersPanel(opts = {}){
   const empty=$(emptyId);
   if(!list) return;
   try{
-    const data=await api('/api/providers');
-    const providers=(data.providers||[]).filter(p=>p.configurable||p.is_oauth);
+    const [provData, connData] = await Promise.all([
+      api('/api/providers'),
+      api('/api/connections').catch(() => ({ connections: [] })),
+    ]);
+    const providers=(provData.providers||[]).filter(p=>p.configurable||p.is_oauth);
+    const connBySlug=new Map((connData.connections||[]).map(c=>[c.slug, c]));
     list.innerHTML='';
     _providerCardEls.clear();
     if(providers.length===0){
@@ -2817,7 +2821,8 @@ async function loadProvidersPanel(opts = {}){
       vMeta.textContent='Vendo manages these keys, billing, and rate limits.';
       vSection.appendChild(vMeta);
       for(const p of vendoManaged){
-        vSection.appendChild(_buildProviderCard(p,{vendoManaged:true}));
+        const conn = connBySlug.get(p.id);
+        vSection.appendChild(_buildProviderCard(p, {vendoManaged:true, conn}));
       }
       list.appendChild(vSection);
     }
@@ -2867,12 +2872,17 @@ async function loadProvidersPanel(opts = {}){
 
 function _buildProviderCard(p, opts){
   const vendoManaged = !!(opts && opts.vendoManaged);
+  const conn = opts && opts.conn;
   if (vendoManaged && _isVendoAvailable(p)) {
-    return _buildVendoConnectCard(p);
+    return _buildVendoConnectCard(p, conn);
   }
   const card=document.createElement('div');
   card.className='provider-card';
   card.dataset.provider=p.id;
+  // NOTE: logo tile is not rendered here because this accordion card (button header +
+  // collapsible body) is not flex-row-compatible without a larger restructure.
+  // See Task 9 concern: vendoManaged non-available provider cards need a body-wrapper
+  // refactor before logo tiles can be added. Tracked for a follow-up task.
   // Use the is_oauth flag from the backend — it reflects _OAUTH_PROVIDERS in providers.py.
   // key_source can be 'oauth' (hermes auth), 'config_yaml' (token in config.yaml), or 'none'.
   const isOauth=p.is_oauth===true;
@@ -3047,10 +3057,15 @@ function _buildProviderCard(p, opts){
   return card;
 }
 
-function _buildVendoConnectCard(p){
+function _buildVendoConnectCard(p, conn){
   const card = document.createElement('div');
-  card.className = 'provider-card provider-card-vendo-available';
+  card.className = 'provider-card provider-card-vendo-available provider-card-with-logo';
   card.dataset.provider = p.id;
+  const logoBearer = conn || { slug: p.id, display_name: p.display_name };
+  card.appendChild(_buildVendoLogoTile(logoBearer));
+
+  const body = document.createElement('div');
+  body.className = 'provider-card-connect-body';
 
   const head = document.createElement('div');
   head.className = 'provider-card-head';
@@ -3062,12 +3077,12 @@ function _buildVendoConnectCard(p){
   pill.className = 'provider-card-pill provider-card-pill-vendo';
   pill.textContent = 'Vendo';
   head.appendChild(pill);
-  card.appendChild(head);
+  body.appendChild(head);
 
   const meta = document.createElement('div');
   meta.className = 'provider-card-meta';
   meta.textContent = 'Models routed through Vendo. Connect to enable.';
-  card.appendChild(meta);
+  body.appendChild(meta);
 
   const actions = document.createElement('div');
   actions.className = 'provider-card-actions';
@@ -3079,8 +3094,9 @@ function _buildVendoConnectCard(p){
     window.open(`https://vendo.run/connections/connect/${p.id}`, '_blank', 'noopener');
   };
   actions.appendChild(btn);
-  card.appendChild(actions);
+  body.appendChild(actions);
 
+  card.appendChild(body);
   return card;
 }
 

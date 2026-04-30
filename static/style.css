@@ -2780,3 +2780,13 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
   flex: 1;
   min-width: 0;
 }
+
+.provider-card-with-logo {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.provider-card-connect-body {
+  flex: 1;
+  min-width: 0;
+}
