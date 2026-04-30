@@ -615,9 +615,12 @@ def get_onboarding_status(handler=None) -> dict:
     # Step list: hide the password step when SSO is active (Hermes-side password
     # is irrelevant — Vendo handles auth). The frontend iterates this array, so
     # filtering server-side automatically removes the step from the sidebar.
-    all_steps = ["system", "setup", "workspace", "password", "finish"]
+    # Under SSO, also split the combined "setup" step into "providers" (AI cards
+    # + BYOK) and "connections" (non-AI integrations) for a cleaner narrative.
     if vendo_sso.is_enabled():
-        all_steps = [s for s in all_steps if s != "password"]
+        all_steps = ["system", "providers", "connections", "workspace", "finish"]
+    else:
+        all_steps = ["system", "setup", "workspace", "password", "finish"]
 
     # Agent-import warnings only matter for hand-installed Hermes deployments.
     # Vendo-bundled images guarantee the agent is present, so under SSO we
