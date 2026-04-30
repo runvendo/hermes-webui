@@ -3220,6 +3220,31 @@ function _paintIntegrations(connections, fetchError, opts = {}){
   }
 }
 
+function _buildVendoLogoTile(connection){
+  const tile = document.createElement('div');
+  tile.className = 'vendo-logo-tile';
+  if (connection.brand_color) {
+    tile.style.backgroundColor = connection.brand_color;
+  }
+  if (connection.logo_url) {
+    const img = document.createElement('img');
+    img.src = connection.logo_url.startsWith('http')
+      ? connection.logo_url
+      : `https://vendo.run${connection.logo_url}`;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.className = 'vendo-logo-tile-img';
+    tile.appendChild(img);
+  } else {
+    const letter = document.createElement('span');
+    letter.className = 'vendo-logo-fallback';
+    letter.textContent = (connection.display_name || connection.slug || '?')
+      .charAt(0).toUpperCase();
+    tile.appendChild(letter);
+  }
+  return tile;
+}
+
 function _buildIntegrationCard(c){
   const card = document.createElement('div');
   card.className = 'integration-card';
