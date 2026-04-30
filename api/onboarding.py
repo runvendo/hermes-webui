@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from api.auth import is_auth_enabled
+from vendo_sdk import connections as vendo_connections
 from vendo_sdk import sso as vendo_sso
 from api.config import (
     DEFAULT_MODEL,
@@ -28,6 +29,51 @@ from api.providers import _write_env_file  # shared impl with _ENV_LOCK (#1164)
 from api.workspace import get_last_workspace, load_workspaces
 
 logger = logging.getLogger(__name__)
+
+
+def _build_vendo_block(handler) -> dict:
+    """Build the `vendo` block for the onboarding status response.
+
+    Identity comes from the request headers (the SSO short-circuit has already
+    validated them). Connections come from the SDK's cached state — falling
+    back to the env-bootstrapped list when the live API is unreachable.
+    """
+    if not vendo_sso.is_enabled():
+        return {"active": False}
+
+    identity_dict = None
+    if handler is not None:
+        identity = vendo_sso.identity_from_headers(handler.headers)
+        if identity is not None:
+            identity_dict = {
+                "name": identity.name,
+                "email": identity.email,
+                "user_id": identity.user_id,
+                "tenant_id": identity.tenant_id,
+                "role": identity.role,
+            }
+
+    # `connected_slugs()` (via `list()`) catches API failures internally and
+    # falls back to VENDO_CONNECTIONS env bootstrap, so it only raises on
+    # truly unexpected errors. `live_api=True` here means "we have a usable
+    # connection list" — which the frontend treats as "Reachable". An
+    # exception from `connected_slugs()` is reported as `live_api=False`.
+    live_api = True
+    try:
+        connected = sorted(vendo_connections.connected_slugs())
+    except Exception:
+        connected = []
+        live_api = False
+
+    return {
+        "active": True,
+        "identity": identity_dict,
+        "connections": {
+            "available": len(connected) > 0,
+            "connected_slugs": connected,
+            "live_api": live_api,
+        },
+    }
 
 
 _SUPPORTED_PROVIDER_SETUPS = {
@@ -499,7 +545,7 @@ def _build_setup_catalog(cfg: dict) -> dict:
     }
 
 
-def get_onboarding_status() -> dict:
+def get_onboarding_status(handler=None) -> dict:
     settings = load_settings()
     cfg = get_config()
     imports_ok, missing, errors = verify_hermes_imports()
@@ -507,6 +553,7 @@ def get_onboarding_status() -> dict:
     workspaces = load_workspaces()
     last_workspace = get_last_workspace()
     available_models = get_available_models()
+    vendo_block = _build_vendo_block(handler)
 
     # HERMES_WEBUI_SKIP_ONBOARDING=1 lets hosting providers (e.g. Agent37) ship
     # a pre-configured instance without the wizard blocking the first load.
@@ -565,16 +612,35 @@ def get_onboarding_status() -> dict:
         except Exception:
             logger.debug("Failed to persist onboarding_completed", exc_info=True)
 
-    return {
-        "completed": bool(settings.get("onboarding_completed")) or auto_completed or config_auto_completed,
-        "settings": {
-            "default_model": settings.get("default_model") or DEFAULT_MODEL,
-            "default_workspace": settings.get("default_workspace")
-            or str(DEFAULT_WORKSPACE),
-            "password_enabled": True if vendo_sso.is_enabled() else is_auth_enabled(),
-            "bot_name": settings.get("bot_name") or "Hermes",
-        },
-        "system": {
+    # Step list: hide the password step when SSO is active (Hermes-side password
+    # is irrelevant — Vendo handles auth). The frontend iterates this array, so
+    # filtering server-side automatically removes the step from the sidebar.
+    all_steps = ["system", "setup", "workspace", "password", "finish"]
+    if vendo_sso.is_enabled():
+        all_steps = [s for s in all_steps if s != "password"]
+
+    # Agent-import warnings only matter for hand-installed Hermes deployments.
+    # Vendo-bundled images guarantee the agent is present, so under SSO we
+    # suppress the missing-modules / import-errors fields and surface a Vendo-
+    # flavoured system_check instead.
+    if vendo_sso.is_enabled():
+        system_block = {
+            "hermes_found": bool(_HERMES_FOUND),
+            "imports_ok": True,
+            "missing_modules": [],
+            "import_errors": {},
+            "config_path": str(_get_config_path()),
+            "config_exists": Path(_get_config_path()).exists(),
+            **runtime,
+        }
+        system_check = {
+            "kind": "vendo",
+            "identity_ok": vendo_block.get("identity") is not None,
+            "connections_ok": vendo_block.get("connections", {}).get("available", False),
+            "live_api": vendo_block.get("connections", {}).get("live_api", False),
+        }
+    else:
+        system_block = {
             "hermes_found": bool(_HERMES_FOUND),
             "imports_ok": bool(imports_ok),
             "missing_modules": missing,
@@ -582,7 +648,22 @@ def get_onboarding_status() -> dict:
             "config_path": str(_get_config_path()),
             "config_exists": Path(_get_config_path()).exists(),
             **runtime,
+        }
+        system_check = {"kind": "hermes"}
+
+    return {
+        "completed": bool(settings.get("onboarding_completed")) or auto_completed or config_auto_completed,
+        "steps": all_steps,
+        "settings": {
+            "default_model": settings.get("default_model") or DEFAULT_MODEL,
+            "default_workspace": settings.get("default_workspace")
+            or str(DEFAULT_WORKSPACE),
+            "password_enabled": True if vendo_sso.is_enabled() else is_auth_enabled(),
+            "bot_name": settings.get("bot_name") or "Hermes",
         },
+        "system": system_block,
+        "system_check": system_check,
+        "vendo": vendo_block,
         "setup": _build_setup_catalog(cfg),
         "workspaces": {
             "items": workspaces,

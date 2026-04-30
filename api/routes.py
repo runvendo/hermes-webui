@@ -813,7 +813,7 @@ def handle_get(handler, parsed) -> bool:
         return j(handler, get_reasoning_status())
 
     if parsed.path == "/api/onboarding/status":
-        return j(handler, get_onboarding_status())
+        return j(handler, get_onboarding_status(handler))
 
     if parsed.path.startswith("/static/"):
         return _serve_static(handler, parsed)
