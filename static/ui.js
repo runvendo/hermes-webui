@@ -202,13 +202,25 @@ async function _decorateVendoManagedModels(sel){
     for(const candidate of sel.querySelectorAll('optgroup')){
       if(candidate.dataset.provider === p.id){ og = candidate; break; }
     }
+    // If /api/providers handed us no models for this provider (e.g.
+    // openrouter — its catalog is fetched live, not hardcoded), pull the
+    // live list so the picker has something to show.
+    let models = (p.models || []);
+    if(!models.length){
+      try {
+        const liveRes = await fetch(`/api/models/live?provider=${encodeURIComponent(p.id)}`, { credentials: 'include' });
+        if(liveRes.ok){
+          const liveBody = await liveRes.json();
+          if(Array.isArray(liveBody.models)) models = liveBody.models;
+        }
+      } catch (_) { /* best-effort; fall through */ }
+    }
     // Tag the group label so users see "OpenRouter · Vendo".
     if(og){
       const base = (og.label || p.display_name || p.id).replace(/\s*·\s*Vendo\s*$/, '');
       og.label = `${base} · Vendo`;
-      // Add any models present in /api/providers that aren't yet in the group.
       const existing = new Set([...og.querySelectorAll('option')].map(o => o.value));
-      for(const m of (p.models || [])){
+      for(const m of models){
         if(existing.has(m.id)) continue;
         const opt = document.createElement('option');
         opt.value = m.id;
@@ -216,13 +228,13 @@ async function _decorateVendoManagedModels(sel){
         og.appendChild(opt);
         _dynamicModelLabels[m.id] = m.label || m.id;
       }
-    } else if((p.models || []).length){
+    } else if(models.length){
       // Provider missing from /api/models entirely — add a fresh group so
       // bound Vendo models are still selectable.
       og = document.createElement('optgroup');
       og.label = `${p.display_name || p.id} · Vendo`;
       og.dataset.provider = p.id;
-      for(const m of (p.models || [])){
+      for(const m of models){
         const opt = document.createElement('option');
         opt.value = m.id;
         opt.textContent = m.label || m.id;
