@@ -237,6 +237,15 @@ def _provider_is_oauth(provider_id: str) -> bool:
     return provider_id in _OAUTH_PROVIDERS
 
 
+def _managed_slugs_now() -> frozenset:
+    """Indirection for tests — resolves Vendo-managed slugs from the SDK."""
+    try:
+        from vendo_sdk import connections as _vendo_connections
+        return frozenset(_vendo_connections.connected_slugs())
+    except Exception:
+        return frozenset()
+
+
 # SECTION: Public API
 
 
@@ -256,11 +265,7 @@ def get_providers() -> dict[str, Any]:
     """
     # Resolve Vendo-managed slugs once — safe to call when not on Vendo
     # (connected_slugs() returns frozenset() in that case).
-    try:
-        from vendo_sdk import connections as _vendo_connections
-        _managed_slugs = _vendo_connections.connected_slugs()
-    except Exception:
-        _managed_slugs = frozenset()
+    _managed_slugs = _managed_slugs_now()
 
     providers = []
 
@@ -401,6 +406,42 @@ def get_providers() -> dict[str, Any]:
                 "key_source": "config_yaml" if cp_has_key else "none",
                 "managed_by": "vendo" if cp_id in _managed_slugs else None,
                 "models": cp_models,
+            })
+
+    # Vendo synthesis: ensure all 3 AI slugs are present, with managed_by reflecting
+    # bind state. For connected AI slugs, override has_key/base_url so the UI shows
+    # "Connected via Vendo" instead of "Not configured".
+    from api import vendo_catalog as _vendo_catalog
+
+    _vendo_ai_index = {p["id"]: p for p in providers if p["id"] in _vendo_catalog.AI_SLUGS}
+    for ai_slug in _vendo_catalog.AI_SLUGS:
+        meta = _vendo_catalog.lookup(ai_slug) or {}
+        proxy_url = meta.get("proxy_url")
+        is_connected = ai_slug in _managed_slugs
+        if ai_slug in _vendo_ai_index:
+            entry = _vendo_ai_index[ai_slug]
+            if is_connected:
+                entry["managed_by"] = "vendo"
+                entry["has_key"] = True
+                entry["key_source"] = "vendo"
+                entry["base_url"] = proxy_url
+            else:
+                # Don't clobber a user BYOK entry; only mark vendo_available when no key.
+                if not entry.get("has_key"):
+                    entry["managed_by"] = "vendo_available"
+        else:
+            # Slug not in known_ids — synthesize a fresh entry (rare).
+            providers.append({
+                "id": ai_slug,
+                "display_name": _PROVIDER_DISPLAY.get(ai_slug, ai_slug.title()),
+                "has_key": is_connected,
+                "configurable": False,
+                "is_oauth": False,
+                "key_source": "vendo" if is_connected else "none",
+                "auth_error": None,
+                "managed_by": "vendo" if is_connected else "vendo_available",
+                "base_url": proxy_url if is_connected else None,
+                "models": _PROVIDER_MODELS.get(ai_slug, []),
             })
 
     # Determine active provider
