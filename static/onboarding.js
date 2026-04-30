@@ -1,4 +1,8 @@
-const ONBOARDING={status:null,step:0,steps:['system','setup','workspace','password','finish'],form:{provider:'openrouter',workspace:'',model:'',password:'',apiKey:'',baseUrl:''},active:false};
+const ONBOARDING={status:null,step:0,steps:['system','setup','workspace','password','finish'],form:{provider:'openrouter',workspace:'',model:'',password:'',apiKey:'',baseUrl:''},active:false,_vendoSetupUnsubscribe:null};
+
+function _isVendoActive(){
+  return !!(ONBOARDING && ONBOARDING.status && ONBOARDING.status.vendo && ONBOARDING.status.vendo.active);
+}
 
 function _getOnboardingSetupProviders(){
   return (((ONBOARDING.status||{}).setup||{}).providers)||[];
@@ -37,13 +41,21 @@ function _getOnboardingCurrentSetup(){
 }
 
 function _onboardingStepMeta(key){
-  return ({
-    system:{title:t('onboarding_step_system_title'),desc:t('onboarding_step_system_desc')},
-    setup:{title:t('onboarding_step_setup_title'),desc:t('onboarding_step_setup_desc')},
+  const vendoActive=_isVendoActive();
+  const map={
+    system:vendoActive
+      ?{title:'Vendo connection',desc:'Verify identity, connections, and Vendo API.'}
+      :{title:t('onboarding_step_system_title'),desc:t('onboarding_step_system_desc')},
+    setup:vendoActive
+      ?{title:'Providers and integrations',desc:'Confirm what Vendo has connected for you.'}
+      :{title:t('onboarding_step_setup_title'),desc:t('onboarding_step_setup_desc')},
     workspace:{title:t('onboarding_step_workspace_title'),desc:t('onboarding_step_workspace_desc')},
     password:{title:t('onboarding_step_password_title'),desc:t('onboarding_step_password_desc')},
-    finish:{title:t('onboarding_step_finish_title'),desc:t('onboarding_step_finish_desc')}
-  })[key];
+    finish:vendoActive
+      ?{title:t('onboarding_step_finish_title'),desc:'Connected via Vendo. Open chat to start.'}
+      :{title:t('onboarding_step_finish_title'),desc:t('onboarding_step_finish_desc')}
+  };
+  return map[key]||{title:key,desc:''};
 }
 
 function _renderOnboardingSteps(){
@@ -110,6 +122,10 @@ function _renderOnboardingBody(){
   if(nextBtn) nextBtn.textContent=key==='finish'?t('onboarding_open'):t('onboarding_continue');
 
   if(key==='system'){
+    if(_isVendoActive()){
+      _renderVendoSystemPane(body, ONBOARDING.status.vendo);
+      return;
+    }
     const hermesOk=system.hermes_found&&system.imports_ok;
     const setupOk=!!system.chat_ready;
     _setOnboardingNotice(system.provider_note|| (setupOk?t('onboarding_notice_system_ready'):t('onboarding_notice_system_unavailable')),setupOk?'success':(hermesOk?'info':'warn'));
@@ -131,6 +147,10 @@ function _renderOnboardingBody(){
   }
 
   if(key==='setup'){
+    if(_isVendoActive()){
+      _renderVendoSetupPane(body);
+      return;
+    }
     const selectedId=ONBOARDING.form.provider;
     const groupedOptions=_renderProviderSelectOptions(selectedId);
     const provider=_getOnboardingSetupProvider(selectedId)||_getOnboardingSetupProviders()[0]||null;
@@ -237,6 +257,22 @@ function _renderOnboardingBody(){
     return;
   }
 
+  if(_isVendoActive()){
+    const vendo=ONBOARDING.status.vendo||{};
+    const slugs=(vendo.connections&&vendo.connections.connected_slugs)||[];
+    const ident=vendo.identity||{};
+    _setOnboardingNotice('Connected via Vendo. Open chat to start.', 'success');
+    body.innerHTML=`
+      <div class="onboarding-summary">
+        <div><strong>Identity</strong><span>${esc(ident.name||ident.email||'Vendo user')}</span></div>
+        <div><strong>Connections</strong><span>${esc(slugs.length?slugs.join(', '):'None yet')}</span></div>
+        <div><strong>Workspace</strong><span>${esc(ONBOARDING.form.workspace||t('onboarding_not_set'))}</span></div>
+        <div><strong>Model</strong><span>${esc(_getOnboardingSelectedModel()||t('onboarding_not_set'))}</span></div>
+      </div>
+      <p class="onboarding-copy">Manage providers and integrations anytime from <a href="https://vendo.run/dashboard" target="_blank" rel="noopener">vendo.run/dashboard</a>.</p>`;
+    return;
+  }
+
   const provider=_getOnboardingSetupProvider(ONBOARDING.form.provider);
   _setOnboardingNotice(t('onboarding_notice_finish'), 'success');
   body.innerHTML=`
@@ -279,10 +315,146 @@ function syncOnboardingProvider(value){
   _renderOnboardingBody();
 }
 
+function _renderVendoSystemPane(body, vendo){
+  const identity=vendo&&vendo.identity;
+  const conns=(vendo&&vendo.connections)||{};
+  const identityOk=!!identity;
+  const connsOk=!!conns.available;
+  const liveApi=!!conns.live_api;
+
+  const allOk=identityOk&&connsOk&&liveApi;
+  _setOnboardingNotice(allOk?'Vendo connection verified.':'Some Vendo signals are missing.', allOk?'success':'info');
+
+  const tile=(label,ok,sub)=>`
+    <div class="onboarding-check ${ok?'ok':'warn'}">
+      <strong>${esc(label)}</strong>
+      <span>${esc(sub)}</span>
+    </div>`;
+
+  const identitySub=identityOk
+    ? `Connected as ${identity.name||identity.email||identity.user_id||'Vendo user'}`
+    : 'Not signed in to Vendo';
+  const connectedSlugs=conns.connected_slugs||[];
+  const connsSub=connsOk
+    ? `${connectedSlugs.length} connected${connectedSlugs.length?': '+connectedSlugs.join(', '):''}`
+    : 'No connections yet';
+  const apiSub=liveApi?'Reachable':'Using cached state';
+
+  body.innerHTML=`
+    <div class="onboarding-panel-grid">
+      ${tile('Identity', identityOk, identitySub)}
+      ${tile('Connections', connsOk, connsSub)}
+      ${tile('Vendo API', liveApi, apiSub)}
+    </div>
+    <div class="onboarding-copy">
+      <p>Vendo manages identity, billing, and connections for this deployment. You can manage them anytime from <a href="https://vendo.run/dashboard" target="_blank" rel="noopener">vendo.run/dashboard</a>.</p>
+    </div>`;
+}
+
+function _teardownVendoSetupSubscription(){
+  if(ONBOARDING._vendoSetupUnsubscribe){
+    try{ ONBOARDING._vendoSetupUnsubscribe(); }
+    catch(e){ console.warn('[onboarding] vendo unsubscribe threw', e); }
+    ONBOARDING._vendoSetupUnsubscribe=null;
+  }
+}
+
+function _renderVendoSetupPane(body){
+  _teardownVendoSetupSubscription();
+  _setOnboardingNotice('Vendo manages your AI providers and integrations.', 'info');
+
+  if(!window.VendoConnections){
+    body.innerHTML='<div class="onboarding-status warn">Connections module not loaded</div>';
+    return;
+  }
+
+  // Static container — re-painted on each subscriber callback.
+  body.innerHTML='<div id="onboardingVendoSetup" class="onboarding-vendo-setup"></div>';
+  const container=$('onboardingVendoSetup');
+
+  ONBOARDING._vendoSetupUnsubscribe=window.VendoConnections.subscribe((connections, fetchError)=>{
+    if(!container.isConnected) return;  // step changed; ignore stale callback
+    container.innerHTML='';
+
+    if(connections===null){
+      const spinner=document.createElement('div');
+      spinner.className='integrations-loading';
+      spinner.innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="20" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>';
+      container.appendChild(spinner);
+      return;
+    }
+
+    if(fetchError){
+      const err=document.createElement('div');
+      err.className='onboarding-status warn';
+      err.textContent="Couldn't reach Vendo: "+fetchError;
+      container.appendChild(err);
+      return;
+    }
+
+    const all=connections||[];
+    const ai=all.filter(c=>c.category==='ai');
+    const nonAi=all.filter(c=>c.category!=='ai');
+
+    if(ai.length){
+      const aiSection=document.createElement('div');
+      aiSection.className='onboarding-conn-section';
+      aiSection.innerHTML='<div class="onboarding-conn-header">AI providers (Vendo-managed)</div>';
+      for(const c of ai){
+        if(typeof _buildIntegrationCard==='function') aiSection.appendChild(_buildIntegrationCard(c));
+      }
+      container.appendChild(aiSection);
+    }
+
+    if(nonAi.length){
+      const intSection=document.createElement('div');
+      intSection.className='onboarding-conn-section';
+      intSection.innerHTML='<div class="onboarding-conn-header">Integrations</div>';
+      for(const c of nonAi){
+        if(typeof _buildIntegrationCard==='function') intSection.appendChild(_buildIntegrationCard(c));
+      }
+      container.appendChild(intSection);
+    }
+
+    if(!all.length){
+      const empty=document.createElement('div');
+      empty.className='onboarding-copy';
+      empty.innerHTML='No connections yet. Add some in <a href="#" data-onboarding-jump-integrations="1">Settings → Integrations</a> after onboarding.';
+      const link=empty.querySelector('a[data-onboarding-jump-integrations]');
+      if(link) link.addEventListener('click', (ev)=>{ ev.preventDefault(); if(typeof switchSettingsSection==='function') switchSettingsSection('integrations'); });
+      container.appendChild(empty);
+    }
+
+    // Collapsed BYOK section.
+    const byok=document.createElement('details');
+    byok.className='onboarding-byok';
+    byok.innerHTML='<summary>Use your own API keys (advanced)</summary><p class="onboarding-copy">Hermes also supports your own provider keys. After onboarding, open Settings → Providers to add them — Vendo-managed keys will still take priority.</p>';
+    container.appendChild(byok);
+  });
+}
+
+function _applyVendoWelcomeOverride(status){
+  const titleEl=$('onboardingTitle');
+  const leadEl=$('onboardingLead');
+  if(!titleEl) return;
+  const vendo=status&&status.vendo;
+  if(vendo&&vendo.active){
+    const ident=vendo.identity||{};
+    let displayName=(ident.name||'').trim();
+    if(!displayName && ident.email) displayName=String(ident.email).split('@')[0];
+    titleEl.textContent=displayName?`Welcome, ${displayName}!`:'Welcome to Hermes via Vendo';
+    if(leadEl) leadEl.textContent='Vendo handles auth, billing, and connections. A quick check-in and you’re ready to chat.';
+  }
+}
+
 async function loadOnboardingWizard(){
   try{
     const status=await api('/api/onboarding/status');
     ONBOARDING.status=status;
+    // Honour server-provided step list (e.g. password step is dropped under Vendo SSO).
+    if(Array.isArray(status.steps)&&status.steps.length){
+      ONBOARDING.steps=status.steps.slice();
+    }
     const current=((status.setup||{}).current)||{};
     ONBOARDING.form.provider=current.provider||'openrouter';
     ONBOARDING.form.workspace=(status.workspaces&&status.workspaces.last)||status.settings.default_workspace||'';
@@ -293,6 +465,7 @@ async function loadOnboardingWizard(){
     ONBOARDING.active=!status.completed;
     if(!ONBOARDING.active) return false;
     $('onboardingOverlay').style.display='flex';
+    _applyVendoWelcomeOverride(status);
     _renderOnboardingSteps();
     _renderOnboardingBody();
     return true;
@@ -304,12 +477,17 @@ async function loadOnboardingWizard(){
 
 function prevOnboardingStep(){
   if(ONBOARDING.step===0)return;
+  // Leaving setup: drop the Vendo connections subscription.
+  if(ONBOARDING.steps[ONBOARDING.step]==='setup') _teardownVendoSetupSubscription();
   ONBOARDING.step--;
   _renderOnboardingSteps();
   _renderOnboardingBody();
 }
 
 async function _saveOnboardingProviderSetup(){
+  // Under Vendo SSO, Vendo manages the provider credentials. Don't POST onboarding
+  // setup — the local config/.env should not be touched.
+  if(_isVendoActive()) return;
   const provider=(ONBOARDING.form.provider||'').trim();
   const model=(ONBOARDING.form.model||'').trim();
   const apiKey=(ONBOARDING.form.apiKey||'').trim();
@@ -358,6 +536,7 @@ async function _finishOnboarding(){
   const done=await api('/api/onboarding/complete',{method:'POST',body:'{}'});
   ONBOARDING.status=done;
   ONBOARDING.active=false;
+  _teardownVendoSetupSubscription();
   $('onboardingOverlay').style.display='none';
   showToast(t('onboarding_complete'));
   await loadWorkspaceList();
@@ -373,6 +552,7 @@ async function skipOnboarding(){
     // Mark onboarding completed server-side without changing any config
     await api('/api/onboarding/complete',{method:'POST',body:'{}'});
     ONBOARDING.active=false;
+    _teardownVendoSetupSubscription();
     $('onboardingOverlay').style.display='none';
     showToast(t('onboarding_skipped')||'Setup skipped');
   }catch(e){
@@ -383,11 +563,20 @@ async function skipOnboarding(){
 async function nextOnboardingStep(){
   try{
     if(ONBOARDING.steps[ONBOARDING.step]==='setup'){
-      ONBOARDING.form.provider=(($('onboardingProviderSelect')||{}).value||ONBOARDING.form.provider||'').trim();
-      ONBOARDING.form.apiKey=(($('onboardingApiKeyInput')||{}).value||'').trim();
-      ONBOARDING.form.baseUrl=(($('onboardingBaseUrlInput')||{}).value||ONBOARDING.form.baseUrl||'').trim();
-      if(!ONBOARDING.form.provider) throw new Error(t('onboarding_error_provider_required'));
-      if(ONBOARDING.form.provider==='custom' && !ONBOARDING.form.baseUrl) throw new Error(t('onboarding_error_base_url_required'));
+      if(_isVendoActive()){
+        // Vendo-managed setup: auto-pass when at least one AI provider is connected.
+        // We skip the provider/key form entirely — Vendo owns those credentials.
+        const slugs=((ONBOARDING.status.vendo||{}).connections||{}).connected_slugs||[];
+        const hasAi=slugs.some(s=>['openrouter','openai','anthropic'].includes(s));
+        if(!hasAi) throw new Error('Connect an AI provider in Vendo before continuing.');
+        _teardownVendoSetupSubscription();
+      } else {
+        ONBOARDING.form.provider=(($('onboardingProviderSelect')||{}).value||ONBOARDING.form.provider||'').trim();
+        ONBOARDING.form.apiKey=(($('onboardingApiKeyInput')||{}).value||'').trim();
+        ONBOARDING.form.baseUrl=(($('onboardingBaseUrlInput')||{}).value||ONBOARDING.form.baseUrl||'').trim();
+        if(!ONBOARDING.form.provider) throw new Error(t('onboarding_error_provider_required'));
+        if(ONBOARDING.form.provider==='custom' && !ONBOARDING.form.baseUrl) throw new Error(t('onboarding_error_base_url_required'));
+      }
     }
     if(ONBOARDING.steps[ONBOARDING.step]==='workspace'){
       ONBOARDING.form.workspace=(($('onboardingWorkspaceInput')||{}).value||ONBOARDING.form.workspace||'').trim();
