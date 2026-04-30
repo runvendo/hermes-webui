@@ -3137,15 +3137,11 @@ function _buildVendoConnectCard(p, conn){
   name.className = 'provider-card-name';
   name.textContent = p.display_name || p.id;
   head.appendChild(name);
-  const pill = document.createElement('span');
-  pill.className = 'provider-card-pill provider-card-pill-vendo';
-  pill.textContent = 'Vendo';
-  head.appendChild(pill);
   body.appendChild(head);
 
   const meta = document.createElement('div');
   meta.className = 'provider-card-meta';
-  meta.textContent = 'Models routed through Vendo. Connect to enable.';
+  meta.textContent = 'Routed through your Vendo balance.';
   body.appendChild(meta);
 
   const actions = document.createElement('div');
