@@ -143,6 +143,33 @@ function _consumeSettingsTargetPanel(fallback = 'chat') {
   return target;
 }
 
+function _renderVendoPanelIdentity() {
+  const el = document.getElementById('vendoPanelIdentity');
+  if (!el) return;
+  el.innerHTML = '<div class="vendo-panel-empty">Loading…</div>';
+  fetch('/api/vendo/identity', { credentials: 'same-origin' })
+    .then(r => r.ok ? r.json() : null)
+    .then(ident => {
+      if (!ident || !ident.email) {
+        el.innerHTML = `<div class="vendo-panel-empty">Vendo connection not detected. Use <a href="javascript:switchPanel('settings');switchSettingsSection('providers')">Settings → Providers</a> for BYOK setup.</div>`;
+        return;
+      }
+      const name = ident.name || ident.email.split('@')[0];
+      const initials = (name || '?').split(/\s+/).slice(0, 2).map(s => s[0] || '').join('').toUpperCase() || '?';
+      const role = ident.role ? ` · ${esc(ident.role)}` : '';
+      el.innerHTML = `
+        <div class="vendo-panel-identity-disc">${esc(initials)}</div>
+        <div>
+          <div class="vendo-panel-identity-name">${esc(name)}</div>
+          <div class="vendo-panel-identity-sub">${esc(ident.email)}${role}</div>
+        </div>
+      `;
+    })
+    .catch(() => {
+      el.innerHTML = '<div class="vendo-panel-empty">Vendo connection not detected.</div>';
+    });
+}
+
 async function switchPanel(name, opts = {}) {
   const nextPanel = name || 'chat';
   const prevPanel = _currentPanel;
@@ -170,6 +197,11 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'workspaces') await loadWorkspacesPanel();
   if (nextPanel === 'profiles') await loadProfilesPanel();
   if (nextPanel === 'todos') loadTodos();
+  if (nextPanel === 'vendo') {
+    _renderVendoPanelIdentity();
+    loadProvidersPanel({listId:'vendoPanelProviders',emptyId:'vendoPanelProvidersEmpty'});
+    loadIntegrationsPanel({listId:'vendoPanelIntegrations',emptyId:'vendoPanelIntegrationsEmpty',errorId:'vendoPanelIntegrationsError'});
+  }
   if (nextPanel === 'settings') {
     switchSettingsSection(_currentSettingsSection);
     loadSettingsPanel();
@@ -2735,9 +2767,22 @@ function _isVendoManagedProvider(p){
   return VENDO_AI_PROVIDERS.has(p.id) && p.managed_by === 'vendo';
 }
 
-async function loadProvidersPanel(){
-  const list=$('providersList');
-  const empty=$('providersEmpty');
+// Refresh whichever provider panels are currently mounted in the DOM
+// (Settings → Providers and/or the top-level Vendo panel).
+async function _refreshAllProvidersPanels(){
+  const tasks=[];
+  if(document.getElementById('providersList')) tasks.push(loadProvidersPanel());
+  if(document.getElementById('vendoPanelProviders')){
+    tasks.push(loadProvidersPanel({listId:'vendoPanelProviders',emptyId:'vendoPanelProvidersEmpty'}));
+  }
+  await Promise.all(tasks);
+}
+
+async function loadProvidersPanel(opts = {}){
+  const listId = opts.listId || 'providersList';
+  const emptyId = opts.emptyId || 'providersEmpty';
+  const list=$(listId);
+  const empty=$(emptyId);
   if(!list) return;
   try{
     const data=await api('/api/providers');
@@ -2803,9 +2848,13 @@ async function loadProvidersPanel(){
     list.appendChild(byokSection);
 
     // Subscribe once: re-fetch /api/providers when /api/connections state changes.
+    // Re-render whichever list is currently mounted in the DOM.
     if(!loadProvidersPanel._subscribed && window.VendoConnections){
       loadProvidersPanel._subscribed=true;
-      window.VendoConnections.subscribe(()=>{ loadProvidersPanel(); });
+      window.VendoConnections.subscribe(()=>{
+        if(document.getElementById('providersList')) loadProvidersPanel();
+        if(document.getElementById('vendoPanelProviders')) loadProvidersPanel({listId:'vendoPanelProviders',emptyId:'vendoPanelProvidersEmpty'});
+      });
     }
   }catch(e){
     list.innerHTML='<div style="color:var(--error);padding:12px;font-size:13px">Failed to load providers: '+e.message+'</div>';
@@ -3006,7 +3055,7 @@ async function _saveProviderKey(providerId){
     if(res.ok){
       showToast(res.provider+' key '+res.action);
       els.input.value='';
-      await loadProvidersPanel(); // refresh list
+      await _refreshAllProvidersPanels();
     }else{
       showToast(res.error||'Failed to save key');
       els.saveBtn.disabled=false;
@@ -3027,7 +3076,7 @@ async function _removeProviderKey(providerId){
     const res=await api('/api/providers/delete',{method:'POST',body:JSON.stringify({provider:providerId})});
     if(res.ok){
       showToast(res.provider+' key '+t('providers_key_removed').toLowerCase());
-      await loadProvidersPanel(); // refresh list
+      await _refreshAllProvidersPanels();
     }else{
       showToast(res.error||'Failed to remove key');
       if(els.saveBtn){els.saveBtn.disabled=false;els.saveBtn.textContent=t('providers_save');}
@@ -3059,16 +3108,22 @@ async function _refreshProviderModels(providerId, btn){
 
 // ── Integrations panel ────────────────────────────────────────────────────
 
-let _integrationsUnsubscribe = null;
+// One unsubscribe per target list; allows Settings + Vendo panels to coexist.
+const _integrationsUnsubscribers = new Map();
 
-function loadIntegrationsPanel(){
-  if (_integrationsUnsubscribe) {
-    _integrationsUnsubscribe();
-    _integrationsUnsubscribe = null;
+function loadIntegrationsPanel(opts = {}){
+  const listId = opts.listId || 'integrationsList';
+  const emptyId = opts.emptyId || 'integrationsEmpty';
+  const errorId = opts.errorId || 'integrationsError';
+  // Drop any prior subscription targeting this same list.
+  const prior = _integrationsUnsubscribers.get(listId);
+  if (prior) {
+    prior();
+    _integrationsUnsubscribers.delete(listId);
   }
   if (!window.VendoConnections) {
-    const list = $('integrationsList');
-    const err = $('integrationsError');
+    const list = $(listId);
+    const err = $(errorId);
     if (list) list.innerHTML = '';
     if (err) {
       err.textContent = 'Connections module not loaded';
@@ -3076,13 +3131,19 @@ function loadIntegrationsPanel(){
     }
     return;
   }
-  _integrationsUnsubscribe = window.VendoConnections.subscribe(_paintIntegrations);
+  const unsub = window.VendoConnections.subscribe((connections, fetchError) => {
+    _paintIntegrations(connections, fetchError, { listId, emptyId, errorId });
+  });
+  _integrationsUnsubscribers.set(listId, unsub);
 }
 
-function _paintIntegrations(connections, fetchError){
-  const list = $('integrationsList');
-  const empty = $('integrationsEmpty');
-  const err = $('integrationsError');
+function _paintIntegrations(connections, fetchError, opts = {}){
+  const listId = opts.listId || 'integrationsList';
+  const emptyId = opts.emptyId || 'integrationsEmpty';
+  const errorId = opts.errorId || 'integrationsError';
+  const list = $(listId);
+  const empty = $(emptyId);
+  const err = $(errorId);
   if (!list) return;
 
   list.innerHTML = '';
