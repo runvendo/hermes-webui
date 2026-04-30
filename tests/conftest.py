@@ -425,3 +425,25 @@ def make_session_tracked(created_list, ws=None):
     ws_path = pathlib.Path(d["session"]["workspace"])
     created_list.append(sid)
     return sid, ws_path
+
+
+# ── Unit test support (no server required) ────────────────────────────────────
+
+def pytest_configure(config):
+    """Register custom pytest marks."""
+    config.addinivalue_line(
+        "markers", "no_server: skip test_server fixture for unit tests that don't need it"
+    )
+
+
+def pytest_runtest_setup(item):
+    """Skip test_server fixture for tests marked with no_server."""
+    # Unit test modules that don't need the server
+    unit_test_modules = {'test_vendo_catalog.py'}
+
+    if item.fspath.basename in unit_test_modules or item.get_closest_marker('no_server'):
+        # Remove test_server from autouse fixtures for this test
+        item.fixturenames = [
+            name for name in item.fixturenames
+            if name != 'test_server'
+        ]
