@@ -202,26 +202,35 @@ async function _decorateVendoManagedModels(sel){
     for(const candidate of sel.querySelectorAll('optgroup')){
       if(candidate.dataset.provider === p.id){ og = candidate; break; }
     }
-    // If /api/providers handed us no models for this provider (e.g.
-    // openrouter — its catalog is fetched live, not hardcoded), pull the
-    // live list so the picker has something to show.
-    let models = (p.models || []);
-    if(!models.length){
-      try {
-        const liveRes = await fetch(`/api/models/live?provider=${encodeURIComponent(p.id)}`, { credentials: 'include' });
-        if(liveRes.ok){
-          const liveBody = await liveRes.json();
-          if(Array.isArray(liveBody.models)) models = liveBody.models;
-        }
-      } catch (_) { /* best-effort; fall through */ }
-    }
+    // Always live-fetch for Vendo-bound providers. Hermes-agent's
+    // _PROVIDER_MODELS hardcodes placeholder ids (e.g. gpt-5.5) that
+    // don't match what the upstream API will accept, so trusting it
+    // pollutes the picker with un-callable options. /api/models/live
+    // delegates to provider_model_ids() which hits the upstream
+    // /v1/models endpoint via the Vendo proxy — that's the truth.
+    // Static list (from /api/providers) becomes a fallback only when
+    // the live fetch fails or returns empty.
+    let models = [];
+    try {
+      const liveRes = await fetch(`/api/models/live?provider=${encodeURIComponent(p.id)}`, { credentials: 'include' });
+      if(liveRes.ok){
+        const liveBody = await liveRes.json();
+        if(Array.isArray(liveBody.models)) models = liveBody.models;
+      }
+    } catch (_) { /* fall through to static fallback */ }
+    if(!models.length) models = (p.models || []);
+
     // Tag the group label so users see "OpenRouter · Vendo".
     if(og){
       const base = (og.label || p.display_name || p.id).replace(/\s*·\s*Vendo\s*$/, '');
       og.label = `${base} · Vendo`;
-      const existing = new Set([...og.querySelectorAll('option')].map(o => o.value));
+      // Wipe whatever the static /api/models discovery put here — its
+      // placeholder ids would otherwise survive alongside the live ones.
+      // _applyModelToDropdown() handles re-selection of the user's
+      // current model after this re-population, falling back to the
+      // session/default model if the previous selection is gone.
+      og.innerHTML = '';
       for(const m of models){
-        if(existing.has(m.id)) continue;
         const opt = document.createElement('option');
         opt.value = m.id;
         opt.textContent = m.label || m.id;
@@ -243,6 +252,11 @@ async function _decorateVendoManagedModels(sel){
       }
       sel.appendChild(og);
     }
+  }
+  // Re-apply the user's selection in case its optgroup was wiped above
+  // and the option was rebuilt with a different DOM identity.
+  if(S.session && S.session.model && typeof _applyModelToDropdown === 'function'){
+    _applyModelToDropdown(S.session.model, sel);
   }
   if(typeof syncModelChip === 'function') syncModelChip();
 }
