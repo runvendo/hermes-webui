@@ -1673,13 +1673,17 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
             # overlays Vendo-connected provider credentials when applicable.
             resolved_api_key = None
             try:
-                _rt = resolve_runtime_provider_with_vendo(requested=resolved_provider)
+                _rt = resolve_runtime_provider_with_vendo(requested=resolved_provider) or {}
                 resolved_api_key = _rt.get("api_key")
                 if not resolved_provider:
                     resolved_provider = _rt.get("provider")
                 if not resolved_base_url:
                     resolved_base_url = _rt.get("base_url")
             except Exception as _e:
+                # Reset to {} so downstream `.get()` calls on _rt at lines
+                # ~1756+ don't NPE the streaming thread when the resolver
+                # raised before returning a dict.
+                _rt = {}
                 print(f"[webui] WARNING: resolve_runtime_provider_with_vendo failed: {_e}", flush=True)
 
             # Read per-profile config at call time (not module-level snapshot)
