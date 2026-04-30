@@ -19,8 +19,10 @@ from api import vendo_catalog
 
 
 class _ConnectionLike(Protocol):
+    """Minimal duck-type for the SDK Connection. Tolerant of older
+    `.fields` shape (pre-0.3 SDK) and the current 0.3 shape where
+    credentials live across api_key/base_url/metadata."""
     slug: str
-    fields: dict
 
 
 _LOCK = threading.Lock()
@@ -31,13 +33,41 @@ def _ns_var(slug: str, field: str) -> str:
     return f"VENDO_CONN_{slug.upper()}_{field.upper()}"
 
 
+def _conn_fields(conn) -> dict:
+    """Flatten an SDK Connection to the ``{field_name: value}`` shape the
+    hydrator historically operated on.
+
+    SDK <=0.2 surfaced everything via a single ``fields`` dict. SDK 0.3+
+    splits credentials into ``api_key``/``base_url`` (top-level) and
+    free-form ``metadata`` (e.g. ``{"bot_token": "..."}``). Flatten here
+    so callers don't need to know which SDK version they're talking to.
+    Returns the legacy ``conn.fields`` dict directly when present.
+    """
+    legacy = getattr(conn, "fields", None)
+    if isinstance(legacy, dict):
+        return legacy
+    out: dict = {}
+    api_key = getattr(conn, "api_key", None)
+    if api_key:
+        out["api_key"] = api_key
+    base_url = getattr(conn, "base_url", None)
+    if base_url:
+        out["base_url"] = base_url
+    metadata = getattr(conn, "metadata", None) or {}
+    for k, v in metadata.items():
+        # Explicit api_key / base_url win if both are present.
+        if k not in out:
+            out[k] = v
+    return out
+
+
 def hydrate(connections: Iterable[_ConnectionLike]) -> None:
     """Set env vars for each connection. Idempotent across turns."""
     with _LOCK:
         for conn in connections:
             meta = vendo_catalog.lookup(conn.slug) or {}
             native_map = meta.get("native_env_map", {})
-            for field_name, value in (conn.fields or {}).items():
+            for field_name, value in _conn_fields(conn).items():
                 if not value:
                     continue
                 # Always set namespaced
