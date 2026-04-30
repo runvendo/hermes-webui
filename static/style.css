@@ -2874,3 +2874,31 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
   font-size: 18px;
   line-height: 1;
 }
+
+/* ── Task 13: Onboarding finish step branding ── */
+.onboarding-finish-mark {
+  width: 64px; height: 64px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fbbf24, #d97706);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 20px;
+  box-shadow: 0 4px 16px rgba(251,191,36,0.3);
+}
+.onboarding-finish-mark span {
+  color: #1a1a1a;
+  font-family: Georgia, serif;
+  font-weight: 800;
+  font-size: 32px;
+}
+.onboarding-finish-title {
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+  margin: 0 0 6px;
+}
+.onboarding-finish-sub {
+  text-align: center;
+  color: #888;
+  font-size: 13px;
+  margin: 0;
+}

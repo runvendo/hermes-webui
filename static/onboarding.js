@@ -278,9 +278,9 @@ function _renderOnboardingBody(){
     _setOnboardingNotice('', null);  // suppress the top notice; the finish hero replaces it
     body.innerHTML=`
       <div class="onboarding-finish-hero">
-        <img src="/static/vendo-logo.png" alt="Vendo" class="onboarding-finish-logo">
-        <div class="onboarding-finish-title">You're all set, ${greetingName}.</div>
-        <div class="onboarding-finish-sub">Your Hermes is connected to Vendo. Identity, billing, and connections are managed for you — just open chat to start.</div>
+        <div class="onboarding-finish-mark"><span>V</span></div>
+        <h2 class="onboarding-finish-title">You're all set</h2>
+        <p class="onboarding-finish-sub">Hermes is ready, signed in via Vendo.</p>
       </div>
       <div class="onboarding-summary onboarding-finish-summary">
         <div><strong>Identity</strong><span>${esc(ident.name || ident.email || 'Vendo user')}</span></div>
