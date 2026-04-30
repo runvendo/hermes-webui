@@ -406,6 +406,47 @@
   .onboarding-oauth-pending .onboarding-oauth-icon{color:#c9a84c;}
   .onboarding-actions{display:flex;justify-content:space-between;gap:10px;margin-top:auto;}
   .onboarding-actions .sm-btn{padding:10px 16px;}
+  /* Anchor styling inside onboarding copy/summary/finish — keep body font, no italics. */
+  .onboarding-copy a,
+  .onboarding-summary a,
+  .onboarding-finish a{
+    color:var(--accent-text,#4f8cff);
+    text-decoration:underline;
+    text-underline-offset:2px;
+    font-family:inherit;
+    font-style:normal;
+    font-weight:500;
+  }
+  .onboarding-copy a:hover,
+  .onboarding-summary a:hover,
+  .onboarding-finish a:hover{text-decoration:none;}
+  /* Finish step hero (Vendo SSO flow). */
+  .onboarding-finish-hero{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    text-align:center;
+    padding:24px 0 16px 0;
+    gap:12px;
+  }
+  .onboarding-finish-logo{
+    width:140px;
+    height:auto;
+    opacity:.95;
+  }
+  .onboarding-finish-title{
+    font-size:22px;
+    font-weight:700;
+    color:var(--text);
+    letter-spacing:-0.01em;
+  }
+  .onboarding-finish-sub{
+    font-size:13px;
+    color:var(--muted);
+    max-width:460px;
+    line-height:1.6;
+  }
+  .onboarding-finish-summary{margin-top:16px;}
   .reconnect-banner{display:none;background:var(--surface);border:1px solid var(--accent-bg-strong);border-radius:10px;padding:10px 16px;margin:10px auto;max-width:780px;font-size:13px;color:var(--accent-text);display:none;align-items:center;justify-content:space-between;gap:12px;}
   .reconnect-banner.visible{display:flex;}
   .reconnect-btn{padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;background:var(--accent-bg-strong);border:1px solid var(--accent-bg-strong);color:var(--accent-text);cursor:pointer;}

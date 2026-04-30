@@ -44,7 +44,7 @@ def test_vendo_block_populated_when_VENDO_AUTH_1(monkeypatch):
     assert status["vendo"]["connections"]["live_api"] is True
 
 
-def test_password_step_excluded_when_VENDO_AUTH_1(monkeypatch):
+def test_steps_list_under_vendo_auth(monkeypatch):
     monkeypatch.setenv("VENDO_AUTH", "1")
     h = _mock_handler()
     with mock.patch(
@@ -52,9 +52,10 @@ def test_password_step_excluded_when_VENDO_AUTH_1(monkeypatch):
         return_value=frozenset(),
     ):
         status = onboarding.get_onboarding_status(h)
+    # Setup is split into providers + connections, password is dropped.
+    assert status["steps"] == ["system", "providers", "connections", "workspace", "finish"]
     assert "password" not in status["steps"]
-    # Other steps stay in order.
-    assert status["steps"] == ["system", "setup", "workspace", "finish"]
+    assert "setup" not in status["steps"]
 
 
 def test_password_step_included_when_VENDO_AUTH_unset(monkeypatch):
