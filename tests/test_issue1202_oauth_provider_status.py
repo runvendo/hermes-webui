@@ -169,7 +169,10 @@ class TestBuildProviderCardJs:
     JS = (REPO_ROOT / "static" / "panels.js").read_text(encoding="utf-8")
 
     def _get_fn(self):
-        idx = self.JS.find("function _buildProviderCard(p){")
+        # The signature gained an `opts` parameter for Vendo-managed cards.
+        idx = self.JS.find("function _buildProviderCard(p, opts){")
+        if idx == -1:
+            idx = self.JS.find("function _buildProviderCard(p){")
         assert idx != -1, "_buildProviderCard not found in panels.js"
         depth = 0
         for i, ch in enumerate(self.JS[idx:], idx):
