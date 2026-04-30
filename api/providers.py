@@ -250,8 +250,18 @@ def get_providers() -> dict[str, Any]:
     - ``configurable``: whether the key can be set from the WebUI
     - ``key_source``: where the key was found (``env_file``, ``env_var``,
       ``config_yaml``, ``oauth``, ``none``)
+    - ``managed_by``: ``"vendo"`` when the connection is managed via Vendo;
+      ``None`` otherwise
     - ``models``: list of known model IDs for this provider
     """
+    # Resolve Vendo-managed slugs once — safe to call when not on Vendo
+    # (connected_slugs() returns frozenset() in that case).
+    try:
+        from vendo_sdk import connections as _vendo_connections
+        _managed_slugs = _vendo_connections.connected_slugs()
+    except Exception:
+        _managed_slugs = frozenset()
+
     providers = []
 
     # Collect all known provider IDs from multiple sources
@@ -358,6 +368,7 @@ def get_providers() -> dict[str, Any]:
             "is_oauth": is_oauth,
             "key_source": key_source,
             "auth_error": auth_error,
+            "managed_by": "vendo" if pid in _managed_slugs else None,
             "models": models,
         })
 
@@ -388,6 +399,7 @@ def get_providers() -> dict[str, Any]:
                 "has_key": cp_has_key,
                 "configurable": False,  # custom providers managed via config.yaml
                 "key_source": "config_yaml" if cp_has_key else "none",
+                "managed_by": "vendo" if cp_id in _managed_slugs else None,
                 "models": cp_models,
             })
 
@@ -401,6 +413,16 @@ def get_providers() -> dict[str, Any]:
         "providers": providers,
         "active_provider": active_provider,
     }
+
+
+def handle_providers_list(handler: Any) -> None:
+    """Handle GET /api/providers. Thin HTTP wrapper over get_providers()."""
+    import json as _json
+    body = _json.dumps(get_providers()).encode()
+    handler.send_response(200)
+    handler.send_header("Content-Type", "application/json")
+    handler.end_headers()
+    handler.wfile.write(body)
 
 
 def set_provider_key(provider_id: str, api_key: str | None) -> dict[str, Any]:
