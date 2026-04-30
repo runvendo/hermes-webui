@@ -2794,6 +2794,9 @@ async function _refreshAllProvidersPanels(){
 async function loadProvidersPanel(opts = {}){
   const listId = opts.listId || 'providersList';
   const emptyId = opts.emptyId || 'providersEmpty';
+  // BYOK belongs in Settings → Providers, not in the Vendo tab. The Vendo
+  // tab is for Vendo-managed providers + integrations only.
+  const hideByok = opts.hideByok === true || listId === 'vendoPanelProviders';
   const list=$(listId);
   const empty=$(emptyId);
   if(!list) return;
@@ -2836,34 +2839,37 @@ async function loadProvidersPanel(opts = {}){
       list.appendChild(vSection);
     }
 
-    // BYOK collapsible section
-    const byokExpanded=localStorage.getItem('hermes:providers:byok-expanded')==='true';
-    const byokSection=document.createElement('div');
-    byokSection.className='providers-section providers-section-byok'+(byokExpanded?' expanded':'');
+    // BYOK collapsible section — hidden in the Vendo tab (Vendo tab = Vendo
+    // providers + integrations only; BYOK lives in Settings → Providers).
+    if (!hideByok) {
+      const byokExpanded=localStorage.getItem('hermes:providers:byok-expanded')==='true';
+      const byokSection=document.createElement('div');
+      byokSection.className='providers-section providers-section-byok'+(byokExpanded?' expanded':'');
 
-    const byokHeader=document.createElement('button');
-    byokHeader.type='button';
-    byokHeader.className='providers-section-header';
-    byokHeader.setAttribute('aria-expanded',String(byokExpanded));
-    byokHeader.innerHTML=`
-      <span>Bring your own keys</span>
-      <span class="providers-section-count">(${byok.length})</span>
-      <svg class="providers-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-    `;
-    byokHeader.onclick=()=>{
-      const nowExpanded=byokSection.classList.toggle('expanded');
-      byokHeader.setAttribute('aria-expanded',String(nowExpanded));
-      localStorage.setItem('hermes:providers:byok-expanded',String(nowExpanded));
-    };
-    byokSection.appendChild(byokHeader);
+      const byokHeader=document.createElement('button');
+      byokHeader.type='button';
+      byokHeader.className='providers-section-header';
+      byokHeader.setAttribute('aria-expanded',String(byokExpanded));
+      byokHeader.innerHTML=`
+        <span>Bring your own keys</span>
+        <span class="providers-section-count">(${byok.length})</span>
+        <svg class="providers-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      `;
+      byokHeader.onclick=()=>{
+        const nowExpanded=byokSection.classList.toggle('expanded');
+        byokHeader.setAttribute('aria-expanded',String(nowExpanded));
+        localStorage.setItem('hermes:providers:byok-expanded',String(nowExpanded));
+      };
+      byokSection.appendChild(byokHeader);
 
-    const byokBody=document.createElement('div');
-    byokBody.className='providers-section-body';
-    for(const p of byok){
-      byokBody.appendChild(_buildProviderCard(p,{vendoManaged:false}));
+      const byokBody=document.createElement('div');
+      byokBody.className='providers-section-body';
+      for(const p of byok){
+        byokBody.appendChild(_buildProviderCard(p,{vendoManaged:false}));
+      }
+      byokSection.appendChild(byokBody);
+      list.appendChild(byokSection);
     }
-    byokSection.appendChild(byokBody);
-    list.appendChild(byokSection);
 
     // Subscribe once: re-fetch /api/providers when /api/connections state changes.
     // Re-render whichever list is currently mounted in the DOM.
@@ -2885,25 +2891,33 @@ function _buildProviderCard(p, opts){
   if (vendoManaged && _isVendoAvailable(p)) {
     return _buildVendoConnectCard(p, conn);
   }
+  // Bound Vendo provider — Vendo owns the key, models, billing. There's
+  // nothing for the user to configure here, so render a flat status card
+  // (name + connected pill + Manage link) instead of an accordion.
+  if (vendoManaged && conn) {
+    return _buildVendoBoundCard(p, conn);
+  }
   const card=document.createElement('div');
   card.className='provider-card';
   card.dataset.provider=p.id;
-  // NOTE: logo tile is not rendered here because this accordion card (button header +
-  // collapsible body) is not flex-row-compatible without a larger restructure.
-  // See Task 9 concern: vendoManaged non-available provider cards need a body-wrapper
-  // refactor before logo tiles can be added. Tracked for a follow-up task.
   // Use the is_oauth flag from the backend — it reflects _OAUTH_PROVIDERS in providers.py.
   // key_source can be 'oauth' (hermes auth), 'config_yaml' (token in config.yaml), or 'none'.
   const isOauth=p.is_oauth===true;
   const modelCount=Array.isArray(p.models)?p.models.length:0;
-  const sourceLabel=p.key_source==='oauth'
-    ? t('providers_status_oauth')
-    : p.key_source==='config_yaml'
-      ? t('providers_status_configured')||'Configured'
-      : (p.has_key ? t('providers_status_api_key') : t('providers_status_not_configured_label'));
+  // When the provider is Vendo-managed, the green "Vendo" pill already
+  // communicates the source — drop the duplicate sourceLabel from the meta
+  // line, since "<N> models · Routed through Vendo" wraps awkwardly with
+  // the logo column eating header width.
+  const sourceLabel=p.key_source==='vendo'
+    ? null
+    : p.key_source==='oauth'
+      ? t('providers_status_oauth')
+      : p.key_source==='config_yaml'
+        ? t('providers_status_configured')||'Configured'
+        : (p.has_key ? (t('providers_status_api_key')||'API key') : (t('providers_status_not_configured_label')||'Not configured'));
   const metaParts=[];
   if(modelCount>0) metaParts.push(modelCount+(modelCount===1?' model':' models'));
-  metaParts.push(sourceLabel);
+  if(sourceLabel) metaParts.push(sourceLabel);
   const metaText=metaParts.join(' · ');
 
   // Clickable header (toggles body)
@@ -3019,7 +3033,8 @@ function _buildProviderCard(p, opts){
   refreshBtn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> ${t('providers_refresh_models')||'Refresh Models'}`;
   refreshBtn.onclick=()=>_refreshProviderModels(p.id, refreshBtn);
   refreshRow.appendChild(refreshBtn);
-  body.appendChild(refreshRow);
+  // Vendo-managed cards don't expose a refresh — Vendo owns model catalog refreshes.
+  if(!vendoManaged) body.appendChild(refreshRow);
   card.appendChild(body);
 
   _providerCardEls.set(p.id,{card,input,saveBtn,hasKey:p.has_key});
@@ -3053,9 +3068,10 @@ function _buildProviderCard(p, opts){
     const removeBtn=row.querySelector('.provider-card-btn-danger');
     if(removeBtn) removeBtn.remove();
     if(toggleBtn) toggleBtn.remove();
-    // Append "Manage in Vendo" link inside the body
+    // Append "Manage in Vendo" link inside the body — points at the
+    // connections list where the user actually manages bindings.
     const manage=document.createElement('a');
-    manage.href='https://vendo.run/dashboard';
+    manage.href='https://vendo.run/connections';
     manage.target='_blank';
     manage.rel='noopener';
     manage.className='provider-card-link';
@@ -3063,6 +3079,45 @@ function _buildProviderCard(p, opts){
     body.appendChild(manage);
   }
 
+  return card;
+}
+
+function _buildVendoBoundCard(p, conn){
+  // Vendo owns the key, the model catalog, and billing for this provider —
+  // the user has nothing to configure. Render a flat status card: logo +
+  // name + "Connected via Vendo" pill + Manage link. No accordion.
+  const card = document.createElement('div');
+  card.className = 'provider-card provider-card-vendo-bound provider-card-with-logo';
+  card.dataset.provider = p.id;
+  card.appendChild(_buildVendoLogoTile(conn));
+
+  const body = document.createElement('div');
+  body.className = 'provider-card-connect-body';
+
+  const head = document.createElement('div');
+  head.className = 'provider-card-head';
+  const name = document.createElement('div');
+  name.className = 'provider-card-name';
+  name.textContent = p.display_name || p.id;
+  head.appendChild(name);
+  const pill = document.createElement('span');
+  pill.className = 'provider-card-pill provider-card-pill-connected';
+  pill.textContent = '✓ Connected via Vendo';
+  head.appendChild(pill);
+  body.appendChild(head);
+
+  const actions = document.createElement('div');
+  actions.className = 'provider-card-actions';
+  const manage = document.createElement('a');
+  manage.href = 'https://vendo.run/connections';
+  manage.target = '_blank';
+  manage.rel = 'noopener';
+  manage.className = 'provider-card-link';
+  manage.textContent = 'Manage in Vendo →';
+  actions.appendChild(manage);
+  body.appendChild(actions);
+
+  card.appendChild(body);
   return card;
 }
 
@@ -3314,7 +3369,7 @@ function _buildIntegrationCard(c){
   actions.className = 'integration-card-actions';
   if (c.status === 'connected') {
     const manage = document.createElement('a');
-    manage.href = 'https://vendo.run/dashboard';
+    manage.href = 'https://vendo.run/connections';
     manage.target = '_blank';
     manage.rel = 'noopener';
     manage.className = 'integration-card-link';

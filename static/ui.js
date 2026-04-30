@@ -169,11 +169,70 @@ async function populateModelDropdown(){
     // Kick off a background live-model fetch for the active provider.
     // This runs after the static list is already shown (no blocking flicker).
     if(data.active_provider) _fetchLiveModels(data.active_provider, sel);
+    // Decorate the picker with Vendo-managed providers (label them, and add
+    // any that the static /api/models discovery didn't pick up).
+    _decorateVendoManagedModels(sel).catch(e => console.warn('Vendo decorate failed:', e));
   }catch(e){
     // API unavailable -- keep the hardcoded HTML options as fallback
     console.warn('Failed to load models from server:',e.message);
     if(typeof syncModelChip==='function') syncModelChip();
   }
+}
+
+/**
+ * Decorate the model dropdown so Vendo-managed providers are clearly tagged
+ * (and show up at all, even if /api/models discovery missed them). Runs
+ * after the static list is in place. Safe no-op when no Vendo binding.
+ */
+async function _decorateVendoManagedModels(sel){
+  if(!sel) return;
+  let provData;
+  try {
+    const res = await fetch('/api/providers', { credentials: 'include' });
+    if(!res.ok) return;
+    provData = await res.json();
+  } catch (_) { return; }
+  const vendoBound = (provData.providers || [])
+    .filter(p => p.managed_by === 'vendo' && p.has_key);
+  if(!vendoBound.length) return;
+
+  for(const p of vendoBound){
+    // Find an existing optgroup for this provider id.
+    let og = null;
+    for(const candidate of sel.querySelectorAll('optgroup')){
+      if(candidate.dataset.provider === p.id){ og = candidate; break; }
+    }
+    // Tag the group label so users see "OpenRouter · Vendo".
+    if(og){
+      const base = (og.label || p.display_name || p.id).replace(/\s*·\s*Vendo\s*$/, '');
+      og.label = `${base} · Vendo`;
+      // Add any models present in /api/providers that aren't yet in the group.
+      const existing = new Set([...og.querySelectorAll('option')].map(o => o.value));
+      for(const m of (p.models || [])){
+        if(existing.has(m.id)) continue;
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.label || m.id;
+        og.appendChild(opt);
+        _dynamicModelLabels[m.id] = m.label || m.id;
+      }
+    } else if((p.models || []).length){
+      // Provider missing from /api/models entirely — add a fresh group so
+      // bound Vendo models are still selectable.
+      og = document.createElement('optgroup');
+      og.label = `${p.display_name || p.id} · Vendo`;
+      og.dataset.provider = p.id;
+      for(const m of (p.models || [])){
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.label || m.id;
+        og.appendChild(opt);
+        _dynamicModelLabels[m.id] = m.label || m.id;
+      }
+      sel.appendChild(og);
+    }
+  }
+  if(typeof syncModelChip === 'function') syncModelChip();
 }
 
 // Cache so we don't re-fetch on every page load
