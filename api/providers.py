@@ -21,6 +21,7 @@ from api.config import (
     invalidate_models_cache,
     reload_config,
 )
+from api import vendo_catalog as _vendo_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -411,8 +412,6 @@ def get_providers() -> dict[str, Any]:
     # Vendo synthesis: ensure all 3 AI slugs are present, with managed_by reflecting
     # bind state. For connected AI slugs, override has_key/base_url so the UI shows
     # "Connected via Vendo" instead of "Not configured".
-    from api import vendo_catalog as _vendo_catalog
-
     _vendo_ai_index = {p["id"]: p for p in providers if p["id"] in _vendo_catalog.AI_SLUGS}
     for ai_slug in _vendo_catalog.AI_SLUGS:
         meta = _vendo_catalog.lookup(ai_slug) or {}
