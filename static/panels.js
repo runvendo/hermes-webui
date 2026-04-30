@@ -3149,13 +3149,15 @@ function _buildVendoConnectCard(p, conn){
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'provider-card-btn-primary';
-  btn.textContent = '+ Connect via Vendo';
-  btn.onclick = () => {
-    window.open(`https://vendo.run/connections/connect/${p.id}`, '_blank', 'noopener');
-  };
+  btn.textContent = 'Connect via Vendo';
+  const openConnect = () => window.open(`https://vendo.run/connections/connect/${p.id}`, '_blank', 'noopener');
+  btn.onclick = (e) => { e.stopPropagation(); openConnect(); };
   actions.appendChild(btn);
   body.appendChild(actions);
 
+  // Whole-card click target: clicking anywhere on the card opens the
+  // connect flow. Keyboard / a11y still goes through the button.
+  card.addEventListener('click', openConnect);
   card.appendChild(body);
   return card;
 }
