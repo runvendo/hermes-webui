@@ -2764,7 +2764,11 @@ const _providerCardEls = new Map(); // providerId → {card, statusDot, input, s
 
 const VENDO_AI_PROVIDERS = new Set(['openrouter','openai','anthropic']);
 function _isVendoManagedProvider(p){
-  return VENDO_AI_PROVIDERS.has(p.id) && p.managed_by === 'vendo';
+  return VENDO_AI_PROVIDERS.has(p.id) &&
+         (p.managed_by === 'vendo' || p.managed_by === 'vendo_available');
+}
+function _isVendoAvailable(p){
+  return p.managed_by === 'vendo_available';
 }
 
 // Refresh whichever provider panels are currently mounted in the DOM
@@ -2863,6 +2867,9 @@ async function loadProvidersPanel(opts = {}){
 
 function _buildProviderCard(p, opts){
   const vendoManaged = !!(opts && opts.vendoManaged);
+  if (vendoManaged && _isVendoAvailable(p)) {
+    return _buildVendoConnectCard(p);
+  }
   const card=document.createElement('div');
   card.className='provider-card';
   card.dataset.provider=p.id;
@@ -3036,6 +3043,43 @@ function _buildProviderCard(p, opts){
     manage.textContent='Manage in Vendo →';
     body.appendChild(manage);
   }
+
+  return card;
+}
+
+function _buildVendoConnectCard(p){
+  const card = document.createElement('div');
+  card.className = 'provider-card provider-card-vendo-available';
+  card.dataset.provider = p.id;
+
+  const head = document.createElement('div');
+  head.className = 'provider-card-head';
+  const name = document.createElement('div');
+  name.className = 'provider-card-name';
+  name.textContent = p.display_name || p.id;
+  head.appendChild(name);
+  const pill = document.createElement('span');
+  pill.className = 'provider-card-pill provider-card-pill-vendo';
+  pill.textContent = 'Vendo';
+  head.appendChild(pill);
+  card.appendChild(head);
+
+  const meta = document.createElement('div');
+  meta.className = 'provider-card-meta';
+  meta.textContent = 'Models routed through Vendo. Connect to enable.';
+  card.appendChild(meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'provider-card-actions';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'provider-card-btn-primary';
+  btn.textContent = '+ Connect via Vendo';
+  btn.onclick = () => {
+    window.open(`https://vendo.run/connections/connect/${p.id}`, '_blank', 'noopener');
+  };
+  actions.appendChild(btn);
+  card.appendChild(actions);
 
   return card;
 }
