@@ -2526,3 +2526,105 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
 .vendo-identity-chip:hover{background:var(--hover-bg);}
 .vendo-identity-chip__avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:white;flex:0 0 24px;}
 .vendo-identity-chip__name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* Vendo connections — providers tab sections */
+.providers-section { margin-bottom: 16px; }
+.providers-section-vendo {
+  border-left: 3px solid var(--accent-emerald, #10b981);
+  padding-left: 12px;
+}
+.providers-section-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.providers-section-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.providers-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 8px 0;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text);
+}
+.providers-section-count { color: var(--muted); font-size: 12px; }
+.providers-section-chevron {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+.providers-section.expanded .providers-section-chevron { transform: rotate(180deg); }
+.providers-section-body { display: none; }
+.providers-section.expanded .providers-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.provider-card-vendo .provider-card-badge,
+.provider-card-badge-vendo {
+  background: #10b981 !important;
+  color: white !important;
+}
+
+.provider-card-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--accent, #2563eb);
+  font-size: 13px;
+  text-decoration: none;
+}
+.provider-card-link:hover { text-decoration: underline; }
+
+/* Vendo connections — integrations tab */
+.integration-card {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  padding: 12px;
+}
+.integration-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.integration-card-name { font-weight: 600; font-size: 14px; }
+.integration-card-meta { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.integration-card-actions { margin-top: 12px; }
+.integration-card-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-soft, #f3f4f6);
+  color: var(--muted);
+}
+.integration-card-pill-connected { background: #d1fae5; color: #065f46; }
+.integration-card-pill-connecting { background: #dbeafe; color: #1e40af; }
+.integration-card-pill-error { background: #fee2e2; color: #991b1b; }
+.integration-card-btn-primary {
+  background: var(--accent, #2563eb);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.integration-card-link {
+  color: var(--accent, #2563eb);
+  font-size: 13px;
+  text-decoration: none;
+}
+.integration-card-link:hover { text-decoration: underline; }
+.integrations-loading {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+  color: var(--muted);
+}

@@ -2459,16 +2459,16 @@ let _settingsSection = 'conversation';
 let _currentSettingsSection = 'conversation';
 
 function switchSettingsSection(name){
-  const section=(name==='appearance'||name==='preferences'||name==='providers'||name==='system')?name:'conversation';
+  const section=(name==='appearance'||name==='preferences'||name==='providers'||name==='integrations'||name==='system')?name:'conversation';
   _settingsSection=section;
   _currentSettingsSection=section;
-  const map={conversation:'Conversation',appearance:'Appearance',preferences:'Preferences',providers:'Providers',system:'System'};
+  const map={conversation:'Conversation',appearance:'Appearance',preferences:'Preferences',providers:'Providers',integrations:'Integrations',system:'System'};
   // Sidebar menu items
   document.querySelectorAll('#settingsMenu .side-menu-item').forEach(it=>{
     it.classList.toggle('active', it.dataset.settingsSection===section);
   });
   // Panes in main
-  ['conversation','appearance','preferences','providers','system'].forEach(key=>{
+  ['conversation','appearance','preferences','providers','integrations','system'].forEach(key=>{
     const pane=$('settingsPane'+map[key]);
     if(pane) pane.classList.toggle('active', key===section);
   });
@@ -2477,6 +2477,7 @@ function switchSettingsSection(name){
   if(dd && dd.value!==section) dd.value=section;
   // Lazy-load providers when the tab is opened
   if(section==='providers') loadProvidersPanel();
+  if(section==='integrations') loadIntegrationsPanel();
 }
 
 function _syncHermesPanelSessionActions(){
@@ -2729,6 +2730,11 @@ async function loadSettingsPanel(){
 
 const _providerCardEls = new Map(); // providerId → {card, statusDot, input, saveBtn, removeBtn}
 
+const VENDO_AI_PROVIDERS = new Set(['openrouter','openai','anthropic']);
+function _isVendoManagedProvider(p){
+  return VENDO_AI_PROVIDERS.has(p.id) && p.managed_by === 'vendo';
+}
+
 async function loadProvidersPanel(){
   const list=$('providersList');
   const empty=$('providersEmpty');
@@ -2745,15 +2751,69 @@ async function loadProvidersPanel(){
     }
     if(empty) empty.style.display='none';
     list.style.display='';
-    for(const p of providers){
-      list.appendChild(_buildProviderCard(p));
+
+    const vendoManaged=providers.filter(_isVendoManagedProvider);
+    const byok=providers.filter(p=>!_isVendoManagedProvider(p));
+
+    // Vendo-managed top section
+    if(vendoManaged.length>0){
+      const vSection=document.createElement('div');
+      vSection.className='providers-section providers-section-vendo';
+      const vTitle=document.createElement('div');
+      vTitle.className='providers-section-title';
+      vTitle.textContent='Provided by Vendo';
+      vSection.appendChild(vTitle);
+      const vMeta=document.createElement('div');
+      vMeta.className='providers-section-meta';
+      vMeta.textContent='Vendo manages these keys, billing, and rate limits.';
+      vSection.appendChild(vMeta);
+      for(const p of vendoManaged){
+        vSection.appendChild(_buildProviderCard(p,{vendoManaged:true}));
+      }
+      list.appendChild(vSection);
+    }
+
+    // BYOK collapsible section
+    const byokExpanded=localStorage.getItem('hermes:providers:byok-expanded')==='true';
+    const byokSection=document.createElement('div');
+    byokSection.className='providers-section providers-section-byok'+(byokExpanded?' expanded':'');
+
+    const byokHeader=document.createElement('button');
+    byokHeader.type='button';
+    byokHeader.className='providers-section-header';
+    byokHeader.setAttribute('aria-expanded',String(byokExpanded));
+    byokHeader.innerHTML=`
+      <span>Bring your own keys</span>
+      <span class="providers-section-count">(${byok.length})</span>
+      <svg class="providers-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+    `;
+    byokHeader.onclick=()=>{
+      const nowExpanded=byokSection.classList.toggle('expanded');
+      byokHeader.setAttribute('aria-expanded',String(nowExpanded));
+      localStorage.setItem('hermes:providers:byok-expanded',String(nowExpanded));
+    };
+    byokSection.appendChild(byokHeader);
+
+    const byokBody=document.createElement('div');
+    byokBody.className='providers-section-body';
+    for(const p of byok){
+      byokBody.appendChild(_buildProviderCard(p,{vendoManaged:false}));
+    }
+    byokSection.appendChild(byokBody);
+    list.appendChild(byokSection);
+
+    // Subscribe once: re-fetch /api/providers when /api/connections state changes.
+    if(!loadProvidersPanel._subscribed && window.VendoConnections){
+      loadProvidersPanel._subscribed=true;
+      window.VendoConnections.subscribe(()=>{ loadProvidersPanel(); });
     }
   }catch(e){
     list.innerHTML='<div style="color:var(--error);padding:12px;font-size:13px">Failed to load providers: '+e.message+'</div>';
   }
 }
 
-function _buildProviderCard(p){
+function _buildProviderCard(p, opts){
+  const vendoManaged = !!(opts && opts.vendoManaged);
   const card=document.createElement('div');
   card.className='provider-card';
   card.dataset.provider=p.id;
@@ -2895,6 +2955,39 @@ function _buildProviderCard(p){
     card.classList.toggle('open');
     if(card.classList.contains('open')) setTimeout(()=>input.focus(),0);
   });
+
+  if(vendoManaged){
+    card.classList.add('provider-card-vendo');
+    // Replace any existing configured badge with a Vendo badge
+    const oldBadge=header.querySelector('.provider-card-badge');
+    if(oldBadge) oldBadge.remove();
+    const vBadge=document.createElement('span');
+    vBadge.className='provider-card-badge provider-card-badge-vendo';
+    vBadge.textContent='Vendo';
+    // Insert before the chevron so layout matches the BYOK case
+    const chevron=header.querySelector('.provider-card-chevron');
+    if(chevron) header.insertBefore(vBadge, chevron);
+    else header.appendChild(vBadge);
+    // Disable input
+    input.disabled=true;
+    input.value='Managed by Vendo';
+    input.placeholder='';
+    // Remove save and remove buttons (keep the ghost toggle button as-is, but it's
+    // useless on a disabled input — hide it too for clarity)
+    saveBtn.remove();
+    const removeBtn=row.querySelector('.provider-card-btn-danger');
+    if(removeBtn) removeBtn.remove();
+    if(toggleBtn) toggleBtn.remove();
+    // Append "Manage in Vendo" link inside the body
+    const manage=document.createElement('a');
+    manage.href='https://vendo.run/dashboard';
+    manage.target='_blank';
+    manage.rel='noopener';
+    manage.className='provider-card-link';
+    manage.textContent='Manage in Vendo →';
+    body.appendChild(manage);
+  }
+
   return card;
 }
 
@@ -2961,6 +3054,134 @@ async function _refreshProviderModels(providerId, btn){
   }finally{
     btn.disabled=false;
     btn.innerHTML=orig;
+  }
+}
+
+// ── Integrations panel ────────────────────────────────────────────────────
+
+let _integrationsUnsubscribe = null;
+
+function loadIntegrationsPanel(){
+  if (_integrationsUnsubscribe) {
+    _integrationsUnsubscribe();
+    _integrationsUnsubscribe = null;
+  }
+  if (!window.VendoConnections) {
+    const list = $('integrationsList');
+    const err = $('integrationsError');
+    if (list) list.innerHTML = '';
+    if (err) {
+      err.textContent = 'Connections module not loaded';
+      err.style.display = '';
+    }
+    return;
+  }
+  _integrationsUnsubscribe = window.VendoConnections.subscribe(_paintIntegrations);
+}
+
+function _paintIntegrations(connections, fetchError){
+  const list = $('integrationsList');
+  const empty = $('integrationsEmpty');
+  const err = $('integrationsError');
+  if (!list) return;
+
+  list.innerHTML = '';
+  if (empty) empty.style.display = 'none';
+  if (err) err.style.display = 'none';
+
+  if (connections === null) {
+    const spinner = document.createElement('div');
+    spinner.className = 'integrations-loading';
+    spinner.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="20" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>';
+    list.appendChild(spinner);
+    return;
+  }
+
+  if (fetchError) {
+    if (err) {
+      err.textContent = "Couldn't reach Vendo: " + fetchError;
+      err.style.display = '';
+    }
+    return;
+  }
+
+  const nonAi = (connections || []).filter(c => c.category !== 'ai');
+  if (nonAi.length === 0) {
+    if (empty) empty.style.display = '';
+    return;
+  }
+  for (const c of nonAi) {
+    list.appendChild(_buildIntegrationCard(c));
+  }
+}
+
+function _buildIntegrationCard(c){
+  const card = document.createElement('div');
+  card.className = 'integration-card';
+  card.dataset.slug = c.slug;
+
+  const head = document.createElement('div');
+  head.className = 'integration-card-head';
+  const name = document.createElement('div');
+  name.className = 'integration-card-name';
+  name.textContent = c.display_name || c.slug;
+  head.appendChild(name);
+
+  const pill = document.createElement('span');
+  pill.className = 'integration-card-pill';
+  const isConnecting = window.VendoConnections && window.VendoConnections.isConnecting(c.slug);
+  if (c.status === 'connected') {
+    pill.textContent = '✓ Connected via Vendo';
+    pill.classList.add('integration-card-pill-connected');
+  } else if (isConnecting) {
+    pill.textContent = 'Connecting…';
+    pill.classList.add('integration-card-pill-connecting');
+  } else if (c.status === 'error') {
+    pill.textContent = 'Connection failed';
+    pill.classList.add('integration-card-pill-error');
+  } else {
+    pill.textContent = 'Available';
+  }
+  head.appendChild(pill);
+  card.appendChild(head);
+
+  const meta = document.createElement('div');
+  meta.className = 'integration-card-meta';
+  meta.textContent = _describeConnection(c);
+  card.appendChild(meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'integration-card-actions';
+  if (c.status === 'connected') {
+    const manage = document.createElement('a');
+    manage.href = 'https://vendo.run/dashboard';
+    manage.target = '_blank';
+    manage.rel = 'noopener';
+    manage.className = 'integration-card-link';
+    manage.textContent = 'Manage in Vendo →';
+    actions.appendChild(manage);
+  } else if (c.setup_url) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'integration-card-btn-primary';
+    btn.textContent = isConnecting ? 'Reopen Vendo tab' : '+ Connect via Vendo';
+    btn.onclick = () => {
+      if (window.VendoConnections) {
+        window.VendoConnections.openSetupTab(c.setup_url, c.slug);
+      }
+    };
+    actions.appendChild(btn);
+  }
+  card.appendChild(actions);
+
+  return card;
+}
+
+function _describeConnection(c){
+  switch (c.slug) {
+    case 'telegram': return 'Chat with Hermes from your phone via a Telegram bot.';
+    case 'notion':   return 'Let Hermes read and write to your Notion workspace.';
+    default:         return (c.metadata && c.metadata.description) || '';
   }
 }
 
