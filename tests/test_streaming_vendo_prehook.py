@@ -46,3 +46,26 @@ def test_pre_turn_fails_soft_on_sdk_error(monkeypatch):
 
     assert state.prompt_block == ""
     assert state.connected_slugs == frozenset()
+
+
+def test_pre_turn_unhydrates_disconnected(monkeypatch):
+    from api.streaming_vendo_hook import vendo_pre_turn
+    fake_conns_first = [FakeConn(slug="telegram", display_name="Telegram",
+                                 fields={"bot_token": "abc"})]
+    fake_conns_second = []  # disconnected
+
+    monkeypatch.setattr("api.streaming_vendo_hook._sdk_refresh", lambda: None)
+    monkeypatch.setattr("api.streaming_vendo_hook._sdk_list",
+                        MagicMock(side_effect=[fake_conns_first, fake_conns_second]))
+    fake_env = {}
+    monkeypatch.setattr(os, "environ", fake_env)
+
+    # Reset module-level state so test is deterministic when run in isolation or after others
+    import api.streaming_vendo_hook as hook
+    hook._PREV_SLUGS = frozenset()
+
+    vendo_pre_turn()  # first turn: hydrate
+    assert fake_env.get("VENDO_CONN_TELEGRAM_BOT_TOKEN") == "abc"
+
+    vendo_pre_turn()  # second turn: telegram gone
+    assert "VENDO_CONN_TELEGRAM_BOT_TOKEN" not in fake_env

@@ -10,6 +10,7 @@ config.yaml + env are unaffected.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 
 from api import vendo_env, vendo_prompt
@@ -17,6 +18,8 @@ from api import vendo_env, vendo_prompt
 logger = logging.getLogger(__name__)
 
 _SDK_FAILURE_LOGGED = False  # log once per process
+_PREV_SLUGS: frozenset = frozenset()
+_PREV_LOCK = threading.Lock()
 
 
 def _sdk_refresh():
@@ -36,7 +39,7 @@ class VendoTurnState:
 
 
 def vendo_pre_turn() -> VendoTurnState:
-    global _SDK_FAILURE_LOGGED
+    global _SDK_FAILURE_LOGGED, _PREV_SLUGS
     try:
         _sdk_refresh()
         conns = _sdk_list()
@@ -46,8 +49,16 @@ def vendo_pre_turn() -> VendoTurnState:
             _SDK_FAILURE_LOGGED = True
         return VendoTurnState(prompt_block="", connected_slugs=frozenset())
 
+    current_slugs = frozenset(c.slug for c in conns)
+
+    with _PREV_LOCK:
+        gone = _PREV_SLUGS - current_slugs
+        _PREV_SLUGS = current_slugs
+
+    if gone:
+        vendo_env.unhydrate(gone)
+
     vendo_env.hydrate(conns)
     block = vendo_prompt.build_block(conns)
-    slugs = frozenset(c.slug for c in conns)
 
-    return VendoTurnState(prompt_block=block, connected_slugs=slugs)
+    return VendoTurnState(prompt_block=block, connected_slugs=current_slugs)
