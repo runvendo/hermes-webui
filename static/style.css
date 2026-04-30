@@ -2618,11 +2618,30 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
 .provider-card-link {
   display: inline-block;
   margin-top: 8px;
-  color: var(--accent, #2563eb);
-  font-size: 13px;
+  color: var(--muted);
+  font-size: 12.5px;
   text-decoration: none;
+  transition: color .15s ease;
 }
-.provider-card-link:hover { text-decoration: underline; }
+.provider-card-link:hover { color: var(--text); text-decoration: none; }
+
+/* Vendo Connect/Manage controls — softer treatment than the loud yellow
+   primary button. Outlined chip on dark, subtle hover. */
+.provider-card-vendo-available .provider-card-btn-primary,
+.integration-card-btn-primary {
+  background: rgba(251, 191, 36, 0.08) !important;
+  border: 1px solid rgba(251, 191, 36, 0.35) !important;
+  color: #fbbf24 !important;
+  font-weight: 500;
+  border-radius: 8px;
+  padding: 6px 12px;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+.provider-card-vendo-available .provider-card-btn-primary:hover:not(:disabled),
+.integration-card-btn-primary:hover {
+  background: rgba(251, 191, 36, 0.16) !important;
+  border-color: rgba(251, 191, 36, 0.55) !important;
+}
 
 /* Vendo connections — integrations tab */
 .integration-card {
@@ -2658,11 +2677,12 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
   font-size: 13px;
 }
 .integration-card-link {
-  color: var(--accent, #2563eb);
-  font-size: 13px;
+  color: var(--muted);
+  font-size: 12.5px;
   text-decoration: none;
+  transition: color .15s ease;
 }
-.integration-card-link:hover { text-decoration: underline; }
+.integration-card-link:hover { color: var(--text); }
 .integrations-loading {
   display: flex;
   justify-content: center;
@@ -2740,17 +2760,18 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
 }
 .provider-card-vendo-available .provider-card-meta {
   color: var(--muted, #888);
-  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.4;
 }
 .provider-card-pill-vendo {
-  background: rgba(251, 191, 36, 0.15);
+  background: rgba(251, 191, 36, 0.12);
   color: #fbbf24;
-  font-size: 10px;
-  padding: 2px 8px;
+  font-size: 11px;
+  padding: 3px 10px;
   border-radius: 999px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 600;
+  font-weight: 500;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* Connection logo tile (used by integration + provider cards) */
@@ -2789,6 +2810,22 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
 .provider-card-connect-body {
   flex: 1;
   min-width: 0;
+}
+
+/* Bound Vendo provider card: flat status layout. No accordion — Vendo
+   owns the key, models, and billing, so there's nothing to expand to. */
+.provider-card-vendo-bound {
+  padding: 14px;
+}
+.provider-card-pill-connected {
+  background: rgba(16, 185, 129, 0.14);
+  color: #10b981;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 500;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* ── Task 10: Vendo panel search ── */
@@ -2856,39 +2893,34 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
   font-weight: 600;
 }
 
-/* ── Task 12: Nav-rail Vendo logomark ── */
+/* ── Nav-rail Vendo logomark ── */
 .nav-rail-vendo-mark {
   width: 32px; height: 32px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #fbbf24, #d97706);
-  display: flex; align-items: center; justify-content: center;
+  background: url('/static/vendo-logo.png') center/contain no-repeat;
   margin: 8px auto 14px;
-  box-shadow: 0 2px 8px rgba(251,191,36,0.25);
   flex-shrink: 0;
   user-select: none;
 }
 .nav-rail-vendo-mark span {
-  color: #1a1a1a;
-  font-family: Georgia, "Times New Roman", serif;
-  font-weight: 800;
-  font-size: 18px;
-  line-height: 1;
+  /* Real logomark replaces the V text — keep the span for a11y but hide it. */
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
-/* ── Task 13: Onboarding finish step branding ── */
+/* ── Onboarding finish step branding ── */
 .onboarding-finish-mark {
-  width: 64px; height: 64px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #fbbf24, #d97706);
-  display: flex; align-items: center; justify-content: center;
+  width: 72px; height: 72px;
+  background: url('/static/vendo-logo.png') center/contain no-repeat;
   margin: 0 auto 20px;
-  box-shadow: 0 4px 16px rgba(251,191,36,0.3);
 }
 .onboarding-finish-mark span {
-  color: #1a1a1a;
-  font-family: Georgia, serif;
-  font-weight: 800;
-  font-size: 32px;
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 .onboarding-finish-title {
   font-size: 18px;

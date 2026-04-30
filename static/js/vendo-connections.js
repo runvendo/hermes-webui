@@ -14,12 +14,16 @@
 
 (function () {
   const POLL_FAST_MS = 2000;
-  const POLL_IDLE_MS = 30000;
+  const POLL_IDLE_MS = 15000;
   const CONNECTING_MAX_MS = 5 * 60 * 1000;
+  // After the window gains focus we keep polling fast for a window — covers
+  // the common flow where a user connects in another tab and switches back.
+  const FAST_AFTER_FOCUS_MS = 30000;
 
   const state = {
     connections: null,        // null = loading; [] = empty; [...] = populated
     lastFetchAt: 0,
+    lastFocusAt: 0,
     fetchError: null,
     connectingSince: new Map(),  // slug -> timestamp
   };
@@ -68,29 +72,36 @@
   }
 
   let pollTimer = null;
+  function inFastWindow() {
+    if (state.connectingSince.size > 0) return true;
+    return state.lastFocusAt > 0 && Date.now() - state.lastFocusAt < FAST_AFTER_FOCUS_MS;
+  }
   function rescheduleLoop() {
     if (pollTimer) {
       clearTimeout(pollTimer);
       pollTimer = null;
     }
     if (document.hidden) return;
-    const cadence = state.connectingSince.size > 0 ? POLL_FAST_MS : POLL_IDLE_MS;
+    const cadence = inFastWindow() ? POLL_FAST_MS : POLL_IDLE_MS;
     pollTimer = setTimeout(async () => {
       await fetchConnections();
       rescheduleLoop();
     }, cadence);
   }
 
+  function onForeground() {
+    state.lastFocusAt = Date.now();
+    fetchConnections().then(rescheduleLoop);
+  }
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden) {
-      fetchConnections().then(rescheduleLoop);
+      onForeground();
     } else if (pollTimer) {
       clearTimeout(pollTimer);
       pollTimer = null;
     }
   });
-
-  window.addEventListener("focus", function () { fetchConnections(); });
+  window.addEventListener("focus", onForeground);
 
   function subscribe(callback) {
     subscribers.add(callback);
