@@ -445,25 +445,24 @@ $('modelSelect').onchange=async()=>{
   if(!S.session)return;
   const sel=$('modelSelect');
   const selectedModel=sel.value;
-  // Read the optgroup's provider hint — set by populateModelDropdown() and
-  // by the Vendo decorator. When the user picks a model from an optgroup
-  // tagged with a different provider than the active one, switch the
-  // global default so hermes routes the next turn through the right
-  // base_url + bearer (otherwise we'd send e.g. an OpenAI model to
-  // api.anthropic.com and 404).
-  const opt=sel.options[sel.selectedIndex];
-  const og=opt && opt.parentElement;
-  const optgroupProvider=(og && og.tagName==='OPTGROUP' && og.dataset.provider)||'';
   if(typeof closeModelDropdown==='function') closeModelDropdown();
   localStorage.setItem('hermes-webui-model', selectedModel);
   await api('/api/session/update',{method:'POST',body:JSON.stringify({session_id:S.session.session_id,workspace:S.session.workspace,model:selectedModel})});
   S.session.model=selectedModel;
   if(typeof syncModelChip==='function') syncModelChip();
   syncTopbar();
+  // Clarify scope: composer model changes are session-local, not the global default.
+  if(typeof showToast==='function'){
+    showToast(t('model_scope_toast')||'Applies to this conversation from your next message.', 3000);
+  }
   // Cross-provider switch: when the picked model came from an optgroup
-  // bound to a different provider, persist the new default so the agent
-  // re-resolves base_url for the next turn. /api/default-model owns the
-  // model→provider→base_url resolution and writes config.yaml.
+  // bound to a different provider, persist the new default so hermes
+  // routes the next turn through the right base_url + bearer (otherwise
+  // we'd send e.g. an OpenRouter model to api.anthropic.com and 404).
+  // /api/default-model owns the model→provider→base_url resolution.
+  const opt=sel.options[sel.selectedIndex];
+  const og=opt && opt.parentElement;
+  const optgroupProvider=(og && og.tagName==='OPTGROUP' && og.dataset.provider)||'';
   if(optgroupProvider && window._activeProvider && optgroupProvider!==window._activeProvider){
     try {
       await api('/api/default-model',{method:'POST',body:JSON.stringify({model:selectedModel})});
@@ -475,10 +474,6 @@ $('modelSelect').onchange=async()=>{
     // Same provider family — fall back to the legacy mismatch warning.
     const warn=_checkProviderMismatch(selectedModel);
     if(warn&&typeof showToast==='function') showToast(warn,4000);
-  }
-  // Clarify scope: composer model changes are session-local, not the global default.
-  if(typeof showToast==='function'){
-    showToast(t('model_scope_toast')||'Applies to this conversation from your next message.', 3000);
   }
 };
 $('msg').addEventListener('input',()=>{
