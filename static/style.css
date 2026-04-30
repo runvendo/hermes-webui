@@ -2753,25 +2753,30 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
 .vendo-panel-empty a { color: var(--accent, #4f8cff); text-decoration: none; }
 .vendo-panel-empty a:hover { text-decoration: underline; }
 
-/* Vendo "available but unconnected" provider card */
+/* Vendo "available but unconnected" provider card.
+   Solid subtle border, slightly muted background — the Connect button
+   carries the visual call to action; no need to scream with dashes. */
 .provider-card-vendo-available {
-  border-style: dashed;
-  opacity: 0.96;
+  background: color-mix(in srgb, var(--sidebar) 92%, transparent);
+}
+.provider-card-vendo-available .provider-card-connect-body {
+  padding: 14px 14px 12px 0;
+}
+.provider-card-vendo-available .provider-card-head {
+  margin-bottom: 4px;
+}
+.provider-card-vendo-available .provider-card-name {
+  font-size: 14px;
+  font-weight: 600;
 }
 .provider-card-vendo-available .provider-card-meta {
   color: var(--muted, #888);
   font-size: 12.5px;
   line-height: 1.4;
+  margin-bottom: 10px;
 }
-.provider-card-pill-vendo {
-  background: rgba(251, 191, 36, 0.12);
-  color: #fbbf24;
-  font-size: 11px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-weight: 500;
-  flex-shrink: 0;
-  white-space: nowrap;
+.provider-card-vendo-available .provider-card-actions {
+  margin-top: 0;
 }
 
 /* Connection logo tile (used by integration + provider cards) */
