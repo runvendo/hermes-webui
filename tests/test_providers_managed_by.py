@@ -32,12 +32,16 @@ def test_managed_by_stamped_when_slug_in_connected_slugs(monkeypatch):
     by_id = {p["id"]: p for p in body["providers"]}
     assert by_id["openrouter"]["managed_by"] == "vendo"
     if "anthropic" in by_id:
-        assert by_id["anthropic"].get("managed_by") in (None, False)
+        # anthropic is a Vendo-supported AI slug; when not connected it gets
+        # managed_by="vendo_available" so the frontend can show a "Connect via Vendo" CTA.
+        assert by_id["anthropic"].get("managed_by") in (None, False, "vendo_available")
 
 
 def test_managed_by_none_when_not_running_on_vendo(monkeypatch):
     """When VENDO_DEPLOYMENT_ID is unset, connected_slugs returns empty
-    (or raises), so no provider has managed_by='vendo'."""
+    (or raises), so no provider has managed_by='vendo'.
+    Vendo-supported AI slugs (openrouter, openai, anthropic) may still have
+    managed_by='vendo_available' to signal a "Connect via Vendo" CTA."""
     monkeypatch.delenv("VENDO_DEPLOYMENT_ID", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-user-byok")
 
@@ -51,4 +55,4 @@ def test_managed_by_none_when_not_running_on_vendo(monkeypatch):
     written = h.wfile.write.call_args[0][0]
     body = json.loads(written.decode())
     for p in body["providers"]:
-        assert p.get("managed_by") in (None, False)
+        assert p.get("managed_by") in (None, False, "vendo_available")
