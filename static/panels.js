@@ -197,10 +197,15 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'workspaces') await loadWorkspacesPanel();
   if (nextPanel === 'profiles') await loadProfilesPanel();
   if (nextPanel === 'todos') loadTodos();
+  if (prevPanel === 'vendo' && nextPanel !== 'vendo') {
+    const _vsi = document.getElementById('vendoPanelSearch');
+    if (_vsi) { _vsi.value = ''; _applyVendoSearch(''); }
+  }
   if (nextPanel === 'vendo') {
     _renderVendoPanelIdentity();
     loadProvidersPanel({listId:'vendoPanelProviders',emptyId:'vendoPanelProvidersEmpty'});
     loadIntegrationsPanel({listId:'vendoPanelIntegrations',emptyId:'vendoPanelIntegrationsEmpty',errorId:'vendoPanelIntegrationsError'});
+    _setupVendoPanelSearch();
   }
   if (nextPanel === 'settings') {
     switchSettingsSection(_currentSettingsSection);
@@ -3730,3 +3735,42 @@ switchSettingsSection=function(name){
   _origSwitchSettings(name);
   if(name==='system') loadMcpServers();
 };
+
+// ── Task 10: Vendo panel search ──
+function _setupVendoPanelSearch(){
+  const input = document.getElementById('vendoPanelSearch');
+  if (!input || input.dataset.bound === '1') return;
+  input.dataset.bound = '1';
+
+  let timer = null;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => _applyVendoSearch(input.value.trim().toLowerCase()), 100);
+  });
+}
+
+function _applyVendoSearch(q){
+  const cards = document.querySelectorAll(
+    '#vendoPanelProviders .provider-card, #vendoPanelIntegrations .integration-card'
+  );
+  let visible = 0;
+  cards.forEach(card => {
+    const name = card.querySelector('.provider-card-name, .integration-card-name');
+    const text = (name?.textContent || '').toLowerCase();
+    const matches = !q || text.includes(q);
+    card.style.display = matches ? '' : 'none';
+    if (matches) visible++;
+  });
+  let empty = document.getElementById('vendoPanelSearchEmpty');
+  if (q && visible === 0) {
+    if (!empty) {
+      empty = document.createElement('div');
+      empty.id = 'vendoPanelSearchEmpty';
+      empty.style.cssText = 'padding:12px;color:#888;font-size:13px;text-align:center;';
+      empty.textContent = 'No matches';
+      document.querySelector('.vendo-panel-search').after(empty);
+    }
+  } else if (empty) {
+    empty.remove();
+  }
+}
