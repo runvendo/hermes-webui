@@ -28,18 +28,42 @@ _CATALOG: dict[str, IntegrationMeta] = {
         "native_env_map": {"api_token": "NOTION_TOKEN"},
         "docs_url": "https://developers.notion.com",
     },
+    # AI providers — native_env_map ensures hydrate() sets the standard
+    # provider env vars (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) plus
+    # base URLs pointing at the Vendo proxy. Without this the agent's
+    # OpenAI/Anthropic clients fall back to api.openai.com / api.anthropic.com
+    # and use whatever stale OPENAI_API_KEY happens to be set, bypassing
+    # Vendo's billing + auth entirely.
     "anthropic": {
         "kind": "ai",
+        "native_env_map": {
+            "api_key": "ANTHROPIC_API_KEY",
+            "base_url": "ANTHROPIC_BASE_URL",
+        },
         "proxy_url": "https://anthropic-proxy.vendo.run",
         "docs_url": "https://docs.anthropic.com",
     },
     "openai": {
         "kind": "ai",
+        "native_env_map": {
+            "api_key": "OPENAI_API_KEY",
+            "base_url": "OPENAI_BASE_URL",
+        },
         "proxy_url": "https://openai-proxy.vendo.run",
         "docs_url": "https://platform.openai.com/docs",
     },
     "openrouter": {
         "kind": "ai",
+        # OpenRouter is OpenAI-compatible; hermes routes it via the same
+        # OPENAI_* env vars when active_provider="openrouter". When both
+        # openrouter and openai are bound, last-wins on these vars — but
+        # hermes' resolve_model_provider() uses the provider-prefixed
+        # model id (e.g. "anthropic/claude-opus-4.6") so the active
+        # provider still picks the right base_url at request time.
+        "native_env_map": {
+            "api_key": "OPENROUTER_API_KEY",
+            "base_url": "OPENROUTER_BASE_URL",
+        },
         "proxy_url": "https://openrouter-proxy.vendo.run",
         "docs_url": "https://openrouter.ai/docs",
     },
