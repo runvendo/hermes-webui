@@ -28,6 +28,8 @@ from api.config import (
 )
 from api.helpers import redact_session_data
 from api.metering import meter
+from api.streaming_vendo_hook import vendo_pre_turn
+from api.vendo_overlay import resolve_runtime_provider_with_vendo
 
 # Global lock for os.environ writes. Per-session locks (_agent_lock) prevent
 # concurrent runs of the SAME session, but two DIFFERENT sessions can still
@@ -1341,6 +1343,11 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
     old_hermes_home = None
     old_profile_env = {}
 
+    # ── Vendo per-turn pre-hook ──
+    # Refresh live connection state, hydrate env vars, and build the prompt block.
+    # Fail-soft: returns empty state if vendo_sdk is unavailable.
+    _vendo_state = vendo_pre_turn()
+
     # ── MCP Server Discovery (lazy import, idempotent) ──
     # discover_mcp_tools() is called here (rather than at server startup) so that
     # the hermes-agent package is fully initialized before we try to connect.
@@ -1662,17 +1669,18 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
 
             # Resolve API key via Hermes runtime provider (matches gateway behaviour).
             # Pass the resolved provider so non-default providers get their own credentials.
+            # resolve_runtime_provider_with_vendo delegates to the upstream resolver and
+            # overlays Vendo-connected provider credentials when applicable.
             resolved_api_key = None
             try:
-                from hermes_cli.runtime_provider import resolve_runtime_provider
-                _rt = resolve_runtime_provider(requested=resolved_provider)
+                _rt = resolve_runtime_provider_with_vendo(requested=resolved_provider)
                 resolved_api_key = _rt.get("api_key")
                 if not resolved_provider:
                     resolved_provider = _rt.get("provider")
                 if not resolved_base_url:
                     resolved_base_url = _rt.get("base_url")
             except Exception as _e:
-                print(f"[webui] WARNING: resolve_runtime_provider failed: {_e}", flush=True)
+                print(f"[webui] WARNING: resolve_runtime_provider_with_vendo failed: {_e}", flush=True)
 
             # Read per-profile config at call time (not module-level snapshot)
             from api.config import get_config as _get_config
@@ -1843,6 +1851,10 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
                 "write_file, read_file, search_files, terminal workdir, and patch. "
                 "Never fall back to a hardcoded path when this tag is present."
             )
+            # Prepend Vendo connection context when available
+            if _vendo_state.prompt_block:
+                workspace_system_msg = _vendo_state.prompt_block + "\n\n" + workspace_system_msg
+
             # Resolve personality prompt from config.yaml agent.personalities
             # (matches hermes-agent CLI behavior — passes via ephemeral_system_prompt)
             _personality_prompt = None
