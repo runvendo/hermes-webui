@@ -1,3 +1,7 @@
+> ⚠️ **ARCHIVED 2026-05-01.** This fork is no longer used by Vendo. Hermes deployments now run on `nousresearch/hermes-agent` directly via [`runvendo/hermes-vendo`](https://github.com/runvendo/hermes-vendo). See [the rebuild design doc](https://github.com/runvendo/vendo/blob/main/docs/superpowers/specs/2026-05-01-hermes-vendo-rebuild-design.md) for context.
+
+---
+
 # Hermes Web UI
 
 [Hermes Agent](https://hermes-agent.nousresearch.com/) is a sophisticated autonomous agent that lives on your server, accessed via a terminal or messaging apps, that remembers what it learns and gets more capable the longer it runs.
