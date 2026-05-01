@@ -793,6 +793,14 @@ def handle_get(handler, parsed) -> bool:
         from api.connections import handle_connections
         return handle_connections(handler)
 
+    if parsed.path == "/api/messaging/gateway-status":
+        from api.connections import handle_messaging_gateway_status
+        return handle_messaging_gateway_status(handler)
+
+    if parsed.path == "/api/vendo/balance":
+        from api.balance import handle_balance
+        return handle_balance(handler)
+
     if parsed.path == "/api/settings":
         settings = load_settings()
         # Never expose the stored password hash to clients

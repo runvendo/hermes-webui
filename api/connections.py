@@ -12,6 +12,8 @@ from typing import Any
 from vendo_sdk import connections as vendo_connections
 from vendo_sdk.deployment import is_running_on_vendo
 
+from api import messaging_status
+
 
 def handle_connections(handler: Any) -> None:
     """Handle GET /api/connections. Mounted from api/routes.py."""
@@ -26,6 +28,23 @@ def handle_connections(handler: Any) -> None:
         return
 
     payload = {"connections": [asdict(c) for c in items]}
+    _json(handler, payload, status=200)
+
+
+def handle_messaging_gateway_status(handler: Any) -> None:
+    """Handle GET /api/messaging/gateway-status.
+
+    Returns the slugs that have transitioned to ``connected`` since this
+    WebUI process started. Those are the messaging connections the sibling
+    ``hermes gateway`` process almost certainly hasn't picked up yet (it
+    reads bot tokens from env once at startup), so the UI can render a
+    "restart the gateway" hint on the affected integration cards.
+
+    Always returns 200 with a stable shape, even when not running on Vendo
+    or when no polling has happened yet — the frontend treats an empty
+    ``stale_in_gateway`` as "no warning needed".
+    """
+    payload = messaging_status.get_status()
     _json(handler, payload, status=200)
 
 

@@ -165,9 +165,26 @@ function _renderVendoPanelIdentity() {
         <div class="vendo-panel-identity-text">
           <div class="vendo-panel-identity-name">${esc(name)}</div>
           <div class="vendo-panel-identity-sub">${esc(ident.email)}${role}</div>
+          <div class="vendo-panel-identity-sub" data-vendo-credits hidden></div>
           ${ssoPill}
         </div>
       `;
+      // Fetch balance separately so the identity render is not blocked.
+      // Shared cache (window.VendoBalance) — also feeds the sidebar chip — so
+      // we don't issue a second /api/vendo/balance request per page load.
+      const balancePromise = (window.VendoBalance && window.VendoBalance.get)
+        ? window.VendoBalance.get()
+        : fetch('/api/vendo/balance', { credentials: 'same-origin' })
+            .then(r => r.ok ? r.json() : null)
+            .then(b => (b && typeof b.balance_usd === 'number') ? b.balance_usd : null)
+            .catch(() => null);
+      balancePromise.then(usd => {
+        if (usd === null) return;
+        const slot = el.querySelector('[data-vendo-credits]');
+        if (!slot) return;
+        slot.textContent = `$${usd.toFixed(2)} credits`;
+        slot.hidden = false;
+      });
     })
     .catch(() => {
       el.innerHTML = '<div class="vendo-panel-empty">Vendo connection not detected.</div>';
@@ -3233,6 +3250,23 @@ async function _refreshProviderModels(providerId, btn){
 // One unsubscribe per target list; allows Settings + Vendo panels to coexist.
 const _integrationsUnsubscribers = new Map();
 
+// Cached set of messaging slugs that the sibling `hermes gateway` process
+// almost certainly hasn't picked up yet (connected after webui boot). The
+// /api/messaging/gateway-status endpoint returns these; we refresh on each
+// repaint and let _buildIntegrationCard paint a "restart gateway" hint.
+let _staleMessagingSlugs = new Set();
+
+async function _refreshStaleMessaging(){
+  try {
+    const res = await fetch('/api/messaging/gateway-status', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const body = await res.json();
+    _staleMessagingSlugs = new Set(body.stale_in_gateway || []);
+  } catch (e) {
+    // Best effort — endpoint absent or unreachable means no warning shown.
+  }
+}
+
 function loadIntegrationsPanel(opts = {}){
   const listId = opts.listId || 'integrationsList';
   const emptyId = opts.emptyId || 'integrationsEmpty';
@@ -3259,7 +3293,14 @@ function loadIntegrationsPanel(opts = {}){
   _integrationsUnsubscribers.set(listId, unsub);
 }
 
-function _paintIntegrations(connections, fetchError, opts = {}){
+async function _paintIntegrations(connections, fetchError, opts = {}){
+  // Fire-and-forget refresh; if it lands before render we use fresh data,
+  // otherwise the next subscribe tick will pick it up.
+  await _refreshStaleMessaging();
+  return _paintIntegrationsSync(connections, fetchError, opts);
+}
+
+function _paintIntegrationsSync(connections, fetchError, opts = {}){
   const listId = opts.listId || 'integrationsList';
   const emptyId = opts.emptyId || 'integrationsEmpty';
   const errorId = opts.errorId || 'integrationsError';
@@ -3340,32 +3381,40 @@ function _buildIntegrationCard(c){
   name.textContent = c.display_name || c.slug;
   head.appendChild(name);
 
-  const pill = document.createElement('span');
-  pill.className = 'integration-card-pill';
+  // Pill is only rendered for states that carry meaning (connected,
+  // connecting, error). The plain "Available" pill was visual noise so we
+  // skip it entirely for the default available state.
   const isConnecting = window.VendoConnections && window.VendoConnections.isConnecting(c.slug);
-  if (c.status === 'connected') {
-    pill.textContent = '✓ Connected via Vendo';
-    pill.classList.add('integration-card-pill-connected');
-  } else if (isConnecting) {
-    pill.textContent = 'Connecting…';
-    pill.classList.add('integration-card-pill-connecting');
-  } else if (c.status === 'error') {
-    pill.textContent = 'Connection failed';
-    pill.classList.add('integration-card-pill-error');
-  } else {
-    pill.textContent = 'Available';
+  if (c.status === 'connected' || isConnecting || c.status === 'error') {
+    const pill = document.createElement('span');
+    pill.className = 'integration-card-pill';
+    if (c.status === 'connected') {
+      pill.textContent = '✓ Connected via Vendo';
+      pill.classList.add('integration-card-pill-connected');
+    } else if (isConnecting) {
+      pill.textContent = 'Connecting…';
+      pill.classList.add('integration-card-pill-connecting');
+    } else {
+      pill.textContent = 'Connection failed';
+      pill.classList.add('integration-card-pill-error');
+    }
+    head.appendChild(pill);
   }
-  head.appendChild(pill);
   body.appendChild(head);
-
-  const meta = document.createElement('div');
-  meta.className = 'integration-card-meta';
-  meta.textContent = _describeConnection(c);
-  body.appendChild(meta);
 
   const actions = document.createElement('div');
   actions.className = 'integration-card-actions';
   if (c.status === 'connected') {
+    // Messaging slugs (telegram, slack, discord, ...) connected after the
+    // webui process started won't be picked up by the sibling `hermes
+    // gateway` process until it's restarted. Surface that gap so the user
+    // doesn't think their bot is silently broken.
+    if (_staleMessagingSlugs.has(c.slug)) {
+      const hint = document.createElement('div');
+      hint.className = 'integration-card-restart-hint';
+      hint.textContent = 'Restart the Hermes gateway to start receiving messages.';
+      body.appendChild(hint);
+    }
     const manage = document.createElement('a');
     manage.href = 'https://vendo.run/connections';
     manage.target = '_blank';
@@ -3389,14 +3438,6 @@ function _buildIntegrationCard(c){
 
   card.appendChild(body);
   return card;
-}
-
-function _describeConnection(c){
-  switch (c.slug) {
-    case 'telegram': return 'Chat with Hermes from your phone via a Telegram bot.';
-    case 'notion':   return 'Let Hermes read and write to your Notion workspace.';
-    default:         return (c.metadata && c.metadata.description) || '';
-  }
 }
 
 function _setSettingsAuthButtonsVisible(active){
