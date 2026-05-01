@@ -2307,7 +2307,10 @@ function _assistantTurnBlocks(turn){
 }
 function _thinkingCardHtml(text){
   const clean=_sanitizeThinkingDisplayText(text);
-  return `<div class="thinking-card"><div class="thinking-card-header" onclick="this.parentElement.classList.toggle('open')"><span class="thinking-card-icon">${li('lightbulb',14)}</span><span class="thinking-card-label">${t('thinking')}</span><span class="thinking-card-toggle">${li('chevron-right',12)}</span></div><div class="thinking-card-body"><pre>${esc(clean)}</pre></div></div>`;
+  // Render with `open` so the persisted thinking trace stays expanded by
+  // default — matches the live-streaming path (_thinkingMarkup) which also
+  // emits `open`. Users can still collapse via the header click handler.
+  return `<div class="thinking-card open"><div class="thinking-card-header" onclick="this.parentElement.classList.toggle('open')"><span class="thinking-card-icon">${li('lightbulb',14)}</span><span class="thinking-card-label">${t('thinking')}</span><span class="thinking-card-toggle">${li('chevron-right',12)}</span></div><div class="thinking-card-body"><pre>${esc(clean)}</pre></div></div>`;
 }
 function _compressionStateForCurrentSession(){
   const state=window._compressionUi;
