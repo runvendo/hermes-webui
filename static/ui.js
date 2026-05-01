@@ -93,6 +93,78 @@ const _ARCHIVE_EXTS=/\.(zip|tar|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz)$/i;
 // Dynamic model labels -- populated by populateModelDropdown(), fallback to static map
 let _dynamicModelLabels={};
 
+// Cached metadata for the model picker UI: providers from /api/providers and
+// AI connections from /api/connections, keyed by provider/connection slug.
+// Populated lazily on dropdown open and refreshed after live-model fetches.
+let _modelPickerProvByID=null;     // Map<provider.id, provider>
+let _modelPickerConnBySlug=null;   // Map<connection.slug, connection>
+let _modelPickerFetchInflight=null;
+
+async function _ensureModelPickerMetadata(force){
+  if(!force && _modelPickerProvByID && _modelPickerConnBySlug) return;
+  if(_modelPickerFetchInflight) return _modelPickerFetchInflight;
+  _modelPickerFetchInflight=(async()=>{
+    try{
+      const [provRes, connRes]=await Promise.all([
+        fetch('/api/providers',{credentials:'include'}).then(r=>r.ok?r.json():{providers:[]}).catch(()=>({providers:[]})),
+        fetch('/api/connections',{credentials:'same-origin'}).then(r=>r.ok?r.json():{connections:[]}).catch(()=>({connections:[]})),
+      ]);
+      _modelPickerProvByID=new Map((provRes.providers||[]).map(p=>[p.id,p]));
+      _modelPickerConnBySlug=new Map((connRes.connections||[]).map(c=>[c.slug,c]));
+    }finally{
+      _modelPickerFetchInflight=null;
+    }
+  })();
+  return _modelPickerFetchInflight;
+}
+
+// Keep the picker metadata in sync with VendoConnections polling, so
+// connect/disconnect events from another tab refresh logos + connected
+// state without requiring a manual reload. Only re-renders if the picker
+// is currently open.
+let _modelPickerConnSubscribed=false;
+function _wireModelPickerConnSubscription(){
+  if(_modelPickerConnSubscribed) return;
+  if(!window.VendoConnections || typeof window.VendoConnections.subscribe!=='function') return;
+  _modelPickerConnSubscribed=true;
+  window.VendoConnections.subscribe((connections)=>{
+    if(!Array.isArray(connections)) return;
+    _modelPickerConnBySlug=new Map(connections.map(c=>[c.slug,c]));
+    const dd=document.getElementById('composerModelDropdown');
+    if(dd && dd.classList.contains('open')) renderModelDropdown();
+  });
+}
+
+// Resolve a logo URL the same way the Vendo panel does (handles relative paths).
+function _modelPickerLogoSrc(url){
+  if(!url) return '';
+  return url.startsWith('http') ? url : `https://vendo.run${url}`;
+}
+
+// Build a circular logo tile for a provider section header. Mirrors the
+// pattern in panels.js _buildVendoLogoTile() but works with the leaner data
+// available from /api/providers (display_name) merged with /api/connections
+// (logo_url, brand_color).
+function _buildModelPickerLogo(meta){
+  const tile=document.createElement('span');
+  tile.className='model-provider-logo';
+  if(meta && meta.brand_color) tile.style.backgroundColor=meta.brand_color;
+  if(meta && meta.logo_url){
+    const img=document.createElement('img');
+    img.src=_modelPickerLogoSrc(meta.logo_url);
+    img.alt='';
+    img.loading='lazy';
+    img.className='model-provider-logo-img';
+    tile.appendChild(img);
+  } else {
+    const letter=document.createElement('span');
+    letter.className='model-provider-logo-fallback';
+    letter.textContent=((meta && (meta.display_name||meta.name||meta.id))||'?').charAt(0).toUpperCase();
+    tile.appendChild(letter);
+  }
+  return tile;
+}
+
 // ── Smart model resolver ────────────────────────────────────────────────────
 // Finds the best matching option value in a <select> for a given model ID.
 // Handles mismatches like 'claude-sonnet-4-6' vs 'anthropic/claude-sonnet-4.6'.
@@ -172,6 +244,9 @@ async function populateModelDropdown(){
     // Decorate the picker with Vendo-managed providers (label them, and add
     // any that the static /api/models discovery didn't pick up).
     _decorateVendoManagedModels(sel).catch(e => console.warn('Vendo decorate failed:', e));
+    // Kick off the picker metadata fetch in parallel so the new model picker
+    // can render with logos + display names without waiting for a click.
+    _ensureModelPickerMetadata(true).catch(()=>{});
   }catch(e){
     // API unavailable -- keep the hardcoded HTML options as fallback
     console.warn('Failed to load models from server:',e.message);
@@ -259,6 +334,10 @@ async function _decorateVendoManagedModels(sel){
     _applyModelToDropdown(S.session.model, sel);
   }
   if(typeof syncModelChip === 'function') syncModelChip();
+  // If the new grouped picker is currently open, re-render it now that live
+  // models have arrived (otherwise it would show only the static placeholders).
+  const _ddOpen=$('composerModelDropdown');
+  if(_ddOpen && _ddOpen.classList.contains('open')) renderModelDropdown();
 }
 
 // Cache so we don't re-fetch on every page load
@@ -418,23 +497,162 @@ function _positionModelDropdown(){
   dd.style.left=`${left}px`;
 }
 
+// Group models from the hidden <select> by their optgroup's data-provider id.
+// Returns { providerOrder: [provider_id...], byProvider: Map<id, {label, models[]}> }.
+function _collectModelDataByProvider(sel){
+  const byProvider=new Map();
+  const providerOrder=[];
+  const orphans=[];
+  for(const child of Array.from(sel.children)){
+    if(child.tagName==='OPTGROUP'){
+      const pid=child.dataset.provider||child.label||'';
+      if(!byProvider.has(pid)){
+        byProvider.set(pid,{label:(child.label||pid).replace(/\s*·\s*Vendo\s*$/,''),models:[]});
+        providerOrder.push(pid);
+      }
+      const bucket=byProvider.get(pid);
+      for(const opt of Array.from(child.children)){
+        bucket.models.push({
+          value:opt.value,
+          name:opt.textContent||getModelLabel(opt.value),
+          id:opt.value,
+          custom:opt.dataset && opt.dataset.custom==='1',
+        });
+      }
+    } else if(child.tagName==='OPTION'){
+      orphans.push({
+        value:child.value,
+        name:child.textContent||getModelLabel(child.value),
+        id:child.value,
+        custom:child.dataset && child.dataset.custom==='1',
+      });
+    }
+  }
+  return {providerOrder, byProvider, orphans};
+}
+
+// Decide whether a provider is "AI-connected" and should appear as a section.
+// A provider qualifies when it has working credentials (`has_key`) — this
+// covers BYOK keys, OAuth (e.g. Copilot), and Vendo-managed bindings (Vendo
+// flips has_key=true once bound). For Vendo-available providers that are not
+// yet bound (`managed_by==='vendo_available'`), we additionally require the
+// matching /api/connections entry to be `connected` so we never render an
+// empty section for an "Available" tile.
+function _isPickerConnectedProvider(prov, conn){
+  if(!prov) return false;
+  if(prov.has_key) return true;
+  if(prov.managed_by==='vendo' && conn && conn.status==='connected') return true;
+  return false;
+}
+
 function renderModelDropdown(){
   const dd=$('composerModelDropdown');
   const sel=$('modelSelect');
   if(!dd||!sel) return;
-  // Store model data for filtering
-  const _modelData=[];
-  for(const child of Array.from(sel.children)){
-    if(child.tagName==='OPTGROUP'){
-      for(const opt of Array.from(child.children)){
-        _modelData.push({value:opt.value,name:esc(opt.textContent||getModelLabel(opt.value)),id:esc(opt.value),group:child.label||''});
-      }
-    }
-    if(child.tagName==='OPTION'){
-      _modelData.push({value:child.value,name:esc(child.textContent||getModelLabel(child.value)),id:esc(child.value),group:''});
+
+  // Kick off (or reuse) provider/connection metadata fetch. The first render
+  // before the fetch lands still works — sections will render with letter
+  // fallback logos and re-render once metadata arrives.
+  _ensureModelPickerMetadata().then(()=>{
+    if(dd.classList.contains('open')) renderModelDropdown();
+  }).catch(()=>{});
+
+  const {providerOrder, byProvider, orphans}=_collectModelDataByProvider(sel);
+  const provMeta=_modelPickerProvByID||new Map();
+  const connMeta=_modelPickerConnBySlug||new Map();
+
+  // Build the visible-provider list: connected AI providers from /api/providers
+  // that also have at least one model in the current dropdown. Orphans (custom
+  // model entries not in any optgroup) get appended in a synthetic "Custom"
+  // section so they remain selectable.
+  const sections=[];
+  for(const pid of providerOrder){
+    const bucket=byProvider.get(pid);
+    if(!bucket||!bucket.models.length) continue;
+    const prov=provMeta.get(pid);
+    const conn=connMeta.get(pid);
+    // If we have provider metadata, gate on connected status. If we don't
+    // (e.g. /api/providers fetch hasn't landed yet, or pid is something like
+    // "default"/"custom" that isn't in provData), still surface the section
+    // so the picker is usable on first paint. The fetch+re-render above will
+    // narrow it down once metadata arrives.
+    if(prov && !_isPickerConnectedProvider(prov, conn)) continue;
+    const displayName=(conn && conn.display_name)||(prov && prov.display_name)||bucket.label||pid;
+    sections.push({
+      id:pid,
+      displayName,
+      models:bucket.models,
+      logoMeta:{
+        logo_url:conn && conn.logo_url,
+        brand_color:conn && conn.brand_color,
+        display_name:displayName,
+        id:pid,
+      },
+      isVendo:!!(prov && prov.managed_by==='vendo'),
+    });
+  }
+  if(orphans.length){
+    sections.push({
+      id:'__custom__',
+      displayName:t('model_custom_label')||'Custom',
+      models:orphans,
+      logoMeta:{display_name:'Custom',id:'__custom__'},
+      isVendo:false,
+    });
+  }
+  // Stable sort: connected providers (we got this far means they all are)
+  // alphabetically by displayName, but keep the currently-selected provider
+  // first so the active model is visible without scrolling.
+  const currentVal=sel.value;
+  const currentProviderIdx=sections.findIndex(s=>s.models.some(m=>m.value===currentVal));
+  sections.sort((a,b)=>a.displayName.localeCompare(b.displayName));
+  if(currentProviderIdx>=0){
+    const cur=sections.find(s=>s.models.some(m=>m.value===currentVal));
+    if(cur){
+      sections.splice(sections.indexOf(cur),1);
+      sections.unshift(cur);
     }
   }
-  // Create search input FIRST before filterModels definition
+
+  // ── Empty state ──────────────────────────────────────────────────────────
+  if(sections.length===0){
+    dd.innerHTML='';
+    const empty=document.createElement('div');
+    empty.className='model-picker-empty';
+    const headline=document.createElement('div');
+    headline.className='model-picker-empty-title';
+    headline.textContent=t('model_picker_empty_title')||'No AI providers connected yet.';
+    empty.appendChild(headline);
+    const sub=document.createElement('div');
+    sub.className='model-picker-empty-sub';
+    sub.textContent=t('model_picker_empty_sub')||'Connect an AI provider to start sending messages.';
+    empty.appendChild(sub);
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='model-picker-empty-btn';
+    btn.textContent=t('model_picker_empty_cta')||'+ Connect a provider via Vendo';
+    btn.onclick=()=>{
+      closeModelDropdown();
+      // Prefer switching to the Vendo panel where AI providers live. Fall
+      // back to opening the first available AI connection's setup URL when
+      // the panel isn't wired up (older builds, missing Vendo binding).
+      if(typeof switchPanel==='function'){
+        switchPanel('vendo');
+        return;
+      }
+      const firstAi=Array.from(connMeta.values()).find(c=>c.category==='ai' && c.setup_url);
+      if(firstAi && window.VendoConnections){
+        window.VendoConnections.openSetupTab(firstAi.setup_url, firstAi.slug);
+      } else if(firstAi){
+        window.open(firstAi.setup_url,'_blank','noopener');
+      }
+    };
+    empty.appendChild(btn);
+    dd.appendChild(empty);
+    return;
+  }
+
+  // ── Build chrome (search + custom-model row) ─────────────────────────────
   const _scopeNote=document.createElement('div');
   _scopeNote.className='model-scope-note';
   _scopeNote.textContent=t('model_scope_advisory')||'Applies to this conversation from your next message.';
@@ -443,7 +661,6 @@ function renderModelDropdown(){
   _searchRow.innerHTML=`<input class="model-search-input" type="text" placeholder="${esc(t('model_search_placeholder')||'Search models…')}" spellcheck="false" autocomplete="off"><button class="model-search-clear" title="Clear search">${li('x',10)}</button>`;
   const _si=_searchRow.querySelector('.model-search-input');
   const _sc=_searchRow.querySelector('.model-search-clear');
-  // Create custom model section elements
   const _custSep=document.createElement('div');
   _custSep.className='model-group model-custom-sep';
   _custSep.textContent=t('model_custom_label')||'Custom model ID';
@@ -452,74 +669,123 @@ function renderModelDropdown(){
   _custRow.innerHTML=`<input class="model-custom-input" type="text" placeholder="${esc(t('model_custom_placeholder')||'e.g. openai/gpt-5.4')}" spellcheck="false" autocomplete="off"><button class="model-custom-btn" title="Use this model">${li('plus',12)}</button>`;
   const _ci=_custRow.querySelector('.model-custom-input');
   const _cb=_custRow.querySelector('.model-custom-btn');
-  // Filter function (defined AFTER _searchRow and _cust* are created)
-  const _filterModels=(term)=>{
-    term=term.trim().toLowerCase();
-    const found=new Set();
-    for(const m of _modelData){
-      const name=m.name.toLowerCase();
-      const id=m.id.toLowerCase();
-      if(name.includes(term)||id.includes(term)){
-        found.add(m.value);
-      }
-    }
-    // Clear and rebuild
+
+  // Track which section is expanded. Persists the *last expanded* section's
+  // id to localStorage so it stays sticky across opens.
+  const STORAGE_KEY='hermes:model-picker:expanded';
+  let lastExpanded=null;
+  try{ lastExpanded=localStorage.getItem(STORAGE_KEY)||null; }catch(_){}
+  // Default: section containing the currently-selected model wins.
+  // Otherwise honor lastExpanded if it's still valid; else fall back to first.
+  const currentSection=sections.find(s=>s.models.some(m=>m.value===currentVal));
+  let expandedId=null;
+  if(currentSection) expandedId=currentSection.id;
+  else if(lastExpanded && sections.some(s=>s.id===lastExpanded)) expandedId=lastExpanded;
+  else expandedId=sections[0].id;
+
+  // ── Filter / re-render loop ─────────────────────────────────────────────
+  const _renderSections=(term)=>{
+    term=(term||'').trim().toLowerCase();
     dd.innerHTML='';
-    // Add search and custom elements first (CRITICAL: must be before models)
     dd.appendChild(_scopeNote);
     dd.appendChild(_searchRow);
-    dd.appendChild(_custSep);
-    dd.appendChild(_custRow);
-    // Add models matching filter
-    let _lastGroup=null;
-    for(const m of _modelData){
-      if(!term||found.has(m.value)){
-        if(m.group&&m.group!==_lastGroup){
-          const heading=document.createElement('div');
-          heading.className='model-group';
-          heading.textContent=m.group;
-          dd.appendChild(heading);
-          _lastGroup=m.group;
-        }
-        const row=document.createElement('div');
-        row.className='model-opt'+(m.value===sel.value?' active':'');
-        row.innerHTML=`<span class="model-opt-name">${m.name}</span><span class="model-opt-id">${m.id}</span>`;
-        row.onclick=()=>selectModelFromDropdown(m.value);
-        dd.appendChild(row);
+
+    // While searching, force-expand every section that has matches so the
+    // user sees results without manually expanding each provider.
+    const filtering=term.length>0;
+    let totalMatches=0;
+    for(const section of sections){
+      const matches=filtering
+        ? section.models.filter(m => (m.name||'').toLowerCase().includes(term) || (m.id||'').toLowerCase().includes(term))
+        : section.models;
+      if(filtering && matches.length===0) continue;
+      totalMatches+=matches.length;
+      const isExpanded=filtering ? true : (section.id===expandedId);
+
+      const wrap=document.createElement('div');
+      wrap.className='model-provider-section'+(isExpanded?' expanded':'');
+      wrap.dataset.providerId=section.id;
+
+      const header=document.createElement('button');
+      header.type='button';
+      header.className='model-provider-header';
+      header.setAttribute('aria-expanded',String(isExpanded));
+      header.appendChild(_buildModelPickerLogo(section.logoMeta));
+      const nameWrap=document.createElement('span');
+      nameWrap.className='model-provider-name';
+      nameWrap.textContent=section.displayName;
+      header.appendChild(nameWrap);
+      if(section.isVendo){
+        const pill=document.createElement('span');
+        pill.className='model-provider-pill';
+        pill.textContent='via Vendo';
+        header.appendChild(pill);
       }
+      const count=document.createElement('span');
+      count.className='model-provider-count';
+      count.textContent=String(matches.length);
+      header.appendChild(count);
+      const chev=document.createElement('span');
+      chev.className='model-provider-chevron';
+      chev.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+      header.appendChild(chev);
+
+      header.onclick=(e)=>{
+        e.preventDefault();
+        if(filtering) return; // disable collapse while searching
+        if(expandedId===section.id){
+          // Allow collapsing the only-open section; nothing else stays open.
+          expandedId=null;
+        } else {
+          expandedId=section.id;
+        }
+        try{ if(expandedId) localStorage.setItem(STORAGE_KEY, expandedId); }catch(_){}
+        _renderSections(_si.value);
+      };
+      wrap.appendChild(header);
+
+      const body=document.createElement('div');
+      body.className='model-provider-body';
+      for(const m of matches){
+        const row=document.createElement('div');
+        row.className='model-opt'+(m.value===currentVal?' active':'');
+        const nameEl=document.createElement('span');
+        nameEl.className='model-opt-name';
+        nameEl.textContent=m.name;
+        const idEl=document.createElement('span');
+        idEl.className='model-opt-id';
+        idEl.textContent=m.id;
+        row.appendChild(nameEl);
+        row.appendChild(idEl);
+        row.onclick=()=>selectModelFromDropdown(m.value);
+        body.appendChild(row);
+      }
+      wrap.appendChild(body);
+      dd.appendChild(wrap);
     }
-    // Show "No results" if filtered and nothing matched
-    if(term&&found.size===0){
+
+    if(filtering && totalMatches===0){
       const noResult=document.createElement('div');
       noResult.className='model-search-no-results';
       noResult.textContent=t('model_search_no_results')||'No models found';
-      noResult.style.padding='12px 14px';
-      noResult.style.color='var(--muted)';
-      noResult.style.textAlign='center';
       dd.appendChild(noResult);
     }
-    // Restore focus to search input
-    _si.focus();
+
+    dd.appendChild(_custSep);
+    dd.appendChild(_custRow);
   };
-  // Event handlers for search input
-  _si.addEventListener('input',()=>_filterModels(_si.value));
-  _si.addEventListener('keydown',e=>{if(e.key==='Enter') {e.preventDefault();}if(e.key==='Escape') {closeModelDropdown();}});
+
+  _si.addEventListener('input',()=>_renderSections(_si.value));
+  _si.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();}if(e.key==='Escape'){closeModelDropdown();}});
   _si.addEventListener('click',e=>e.stopPropagation());
-  // Event handlers for clear button
-  _sc.onclick=()=>{ _si.value=''; _filterModels(''); _si.focus(); };
-  _sc.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){ _si.value=''; _filterModels(''); _si.focus(); e.preventDefault(); }});
-  // Event handlers for custom input
+  _sc.onclick=()=>{ _si.value=''; _renderSections(''); _si.focus(); };
+  _sc.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){ _si.value=''; _renderSections(''); _si.focus(); e.preventDefault(); }});
   const _applyCustom=()=>{const v=_ci.value.trim();if(!v)return;selectModelFromDropdown(v);_ci.value='';};
   _cb.onclick=_applyCustom;
   _ci.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();_applyCustom();}if(e.key==='Escape'){closeModelDropdown();}});
   _ci.addEventListener('click',e=>e.stopPropagation());
-  // Add search and custom elements to dropdown (initial render)
-  dd.appendChild(_scopeNote);
-  dd.appendChild(_searchRow);
-  dd.appendChild(_custSep);
-  dd.appendChild(_custRow);
-  // Apply initial filter (empty shows all)
-  _filterModels('');
+
+  _renderSections('');
 }
 
 async function selectModelFromDropdown(value){
@@ -552,6 +818,7 @@ function toggleModelDropdown(){
   if(typeof closeProfileDropdown==='function') closeProfileDropdown();
   if(typeof closeWsDropdown==='function') closeWsDropdown();
   if(typeof closeReasoningDropdown==='function') closeReasoningDropdown();
+  _wireModelPickerConnSubscription();
   renderModelDropdown();
   dd.classList.add('open');
   _positionModelDropdown();

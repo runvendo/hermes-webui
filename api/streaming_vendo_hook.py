@@ -13,7 +13,7 @@ import logging
 import threading
 from dataclasses import dataclass
 
-from api import vendo_env, vendo_prompt
+from api import messaging_status, vendo_env, vendo_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,10 @@ def vendo_pre_turn() -> VendoTurnState:
         vendo_env.unhydrate(gone)
 
     vendo_env.hydrate(conns)
+    # Track which messaging-category slugs newly transitioned to connected,
+    # so /api/messaging/gateway-status can warn the user that their sibling
+    # `hermes gateway` process hasn't picked up the token yet.
+    messaging_status.record_poll(conns)
     block = vendo_prompt.build_block(conns)
 
     return VendoTurnState(prompt_block=block, connected_slugs=current_slugs)

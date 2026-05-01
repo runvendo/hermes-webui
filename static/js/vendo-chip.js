@@ -29,6 +29,21 @@ function initials(name) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+// Shared balance fetch — single request per page load, reused by the chip and
+// the Vendo panel identity card. Returns a Promise that resolves to a number
+// (USD) or null when unavailable.
+window.VendoBalance = window.VendoBalance || {
+  _promise: null,
+  get() {
+    if (this._promise) return this._promise;
+    this._promise = fetch('/api/vendo/balance', { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : null)
+      .then(b => (b && typeof b.balance_usd === 'number') ? b.balance_usd : null)
+      .catch(() => null);
+    return this._promise;
+  },
+};
+
 async function loadVendoChip() {
   let res;
   try {
@@ -47,10 +62,20 @@ async function loadVendoChip() {
   if (!root) return;
   const avatar = root.querySelector('.vendo-identity-chip__avatar');
   const nameEl = root.querySelector('.vendo-identity-chip__name');
+  const creditsEl = root.querySelector('.vendo-identity-chip__credits');
 
   avatar.style.backgroundColor = pickColor(id.user_id);
   avatar.textContent = initials(id.name);
   nameEl.textContent = id.name;
+
+  // Populate credits line lazily — same source as the Vendo panel identity card.
+  if (creditsEl) {
+    window.VendoBalance.get().then(usd => {
+      if (usd === null) return;
+      creditsEl.textContent = `$${usd.toFixed(2)} credits`;
+      creditsEl.hidden = false;
+    });
+  }
 
   root.addEventListener('click', () => {
     window.open(id.dashboard_url, '_blank', 'noopener');

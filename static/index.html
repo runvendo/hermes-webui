@@ -253,7 +253,10 @@
     </div>
     <div id="vendo-identity-chip" class="vendo-identity-chip" hidden>
       <div class="vendo-identity-chip__avatar"></div>
-      <div class="vendo-identity-chip__name"></div>
+      <div class="vendo-identity-chip__text">
+        <div class="vendo-identity-chip__name"></div>
+        <div class="vendo-identity-chip__credits" hidden></div>
+      </div>
     </div>
   <div class="resize-handle" id="sidebarResize"></div>
   </aside>
@@ -826,7 +829,7 @@
                 <div class="settings-section-meta" data-i18n="integrations_section_meta">Tools your Hermes can use, connected via Vendo.</div>
               </div>
             </div>
-            <div id="integrationsList" style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+            <div id="integrationsList" class="integrations-grid">
               <!-- Populated dynamically by loadIntegrationsPanel() -->
             </div>
             <div id="integrationsEmpty" style="display:none;text-align:center;padding:32px 0;color:var(--muted);font-size:13px" data-i18n="integrations_empty">
