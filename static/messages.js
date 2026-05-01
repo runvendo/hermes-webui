@@ -386,6 +386,19 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
 
   // rAF-throttled rendering: buffer tokens, render at most once per frame
   let _renderPending=false;
+  // Pull a single-line "current activity" string out of an accumulating
+  // reasoning trace. Mirrors how Claude Code surfaces "what the agent is
+  // doing right now" instead of the full internal monologue. Falls back
+  // to a tail slice when the trace has no line breaks yet so the spinner
+  // text always advances visibly while the model thinks.
+  function _reasoningTickerLine(text){
+    if(!text) return 'Thinking…';
+    const lines = String(text).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const last = lines.length ? lines[lines.length - 1] : String(text).trim();
+    if(!last) return 'Thinking…';
+    // Cap to keep the card compact even when the model writes long sentences.
+    return last.length > 120 ? '… ' + last.slice(-117) : last;
+  }
   // Extract display text from assistantText, stripping completed thinking blocks
   // and hiding content still inside an open thinking block.
   function _stripXmlToolCalls(s){
@@ -628,8 +641,13 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       // finalizeThinkingCard(). The old rAF-only path caused a race where
       // the thinking row was still a spinner when finalized.
       if(window._showThinking!==false){
-        if(typeof updateThinking==='function') updateThinking(liveReasoningText||'Thinking…');
-        else appendThinking(liveReasoningText);
+        // Show only the most recent reasoning line during streaming —
+        // matches Claude Code's "current activity" ticker. Full trace
+        // is preserved in liveReasoningText / reasoningText and is
+        // visible after the user expands the persisted card.
+        const ticker=_reasoningTickerLine(liveReasoningText);
+        if(typeof updateThinking==='function') updateThinking(ticker);
+        else appendThinking(ticker);
       }
       _scheduleRender();
     });
