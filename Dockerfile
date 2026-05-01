@@ -25,6 +25,7 @@ RUN apt-get update -y --fix-missing --no-install-recommends \
     curl \
     rsync \
     openssh-client \
+    git \
     && apt-get upgrade -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
