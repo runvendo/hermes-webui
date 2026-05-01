@@ -15,6 +15,13 @@ class IntegrationMeta(TypedDict, total=False):
     native_env_map: dict
     docs_url: str
     proxy_url: str
+    # 'static' (default when missing) — credentials are stable; env-var
+    #   hydration is fine and saved skills may reference $VAR_NAME directly.
+    # 'refreshing' — short-lived OAuth access tokens that expire mid-turn
+    #   or between skill replays (Gmail, Slack, MS, etc.). Saved skills
+    #   must call vendo_sdk.session(slug) or vendo_sdk.token(slug) at
+    #   point-of-use rather than reading $..._ACCESS_TOKEN.
+    refresh_kind: str
 
 
 _CATALOG: dict[str, IntegrationMeta] = {
