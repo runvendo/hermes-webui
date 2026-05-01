@@ -207,8 +207,7 @@ async function switchPanel(name, opts = {}) {
   }
   if (nextPanel === 'vendo') {
     _renderVendoPanelIdentity();
-    loadProvidersPanel({listId:'vendoPanelProviders',emptyId:'vendoPanelProvidersEmpty'});
-    loadIntegrationsPanel({listId:'vendoPanelIntegrations',emptyId:'vendoPanelIntegrationsEmpty',errorId:'vendoPanelIntegrationsError'});
+    loadVendoPanelTabs();
     _setupVendoPanelSearch();
   }
   if (nextPanel === 'settings') {
@@ -2771,32 +2770,27 @@ async function loadSettingsPanel(){
 
 const _providerCardEls = new Map(); // providerId → {card, statusDot, input, saveBtn, removeBtn}
 
-const VENDO_AI_PROVIDERS = new Set(['openrouter','openai','anthropic']);
+// "Vendo-managed" status comes straight from /api/providers — no need for a
+// hardcoded slug whitelist. Any provider Vendo runs on the user's behalf is
+// flagged via managed_by; we just respect it.
 function _isVendoManagedProvider(p){
-  return VENDO_AI_PROVIDERS.has(p.id) &&
-         (p.managed_by === 'vendo' || p.managed_by === 'vendo_available');
+  return p.managed_by === 'vendo' || p.managed_by === 'vendo_available';
 }
 function _isVendoAvailable(p){
   return p.managed_by === 'vendo_available';
 }
 
-// Refresh whichever provider panels are currently mounted in the DOM
-// (Settings → Providers and/or the top-level Vendo panel).
+// Refresh whichever provider panels are currently mounted in the DOM.
 async function _refreshAllProvidersPanels(){
   const tasks=[];
   if(document.getElementById('providersList')) tasks.push(loadProvidersPanel());
-  if(document.getElementById('vendoPanelProviders')){
-    tasks.push(loadProvidersPanel({listId:'vendoPanelProviders',emptyId:'vendoPanelProvidersEmpty'}));
-  }
   await Promise.all(tasks);
 }
 
 async function loadProvidersPanel(opts = {}){
   const listId = opts.listId || 'providersList';
   const emptyId = opts.emptyId || 'providersEmpty';
-  // BYOK belongs in Settings → Providers, not in the Vendo tab. The Vendo
-  // tab is for Vendo-managed providers + integrations only.
-  const hideByok = opts.hideByok === true || listId === 'vendoPanelProviders';
+  const hideByok = opts.hideByok === true;
   const list=$(listId);
   const empty=$(emptyId);
   if(!list) return;
@@ -2872,12 +2866,10 @@ async function loadProvidersPanel(opts = {}){
     }
 
     // Subscribe once: re-fetch /api/providers when /api/connections state changes.
-    // Re-render whichever list is currently mounted in the DOM.
     if(!loadProvidersPanel._subscribed && window.VendoConnections){
       loadProvidersPanel._subscribed=true;
       window.VendoConnections.subscribe(()=>{
         if(document.getElementById('providersList')) loadProvidersPanel();
-        if(document.getElementById('vendoPanelProviders')) loadProvidersPanel({listId:'vendoPanelProviders',emptyId:'vendoPanelProvidersEmpty'});
       });
     }
   }catch(e){
@@ -3230,6 +3222,99 @@ async function _refreshProviderModels(providerId, btn){
 
 // ── Integrations panel ────────────────────────────────────────────────────
 
+// Active tab in the Vendo panel. Persists across re-renders so a focus-driven
+// VendoConnections refresh doesn't kick the user back to "Communication".
+let _vendoActiveTab = 'communication';
+let _vendoTabsUnsub = null;
+let _vendoLatestConnections = null;
+let _vendoLatestError = null;
+
+function loadVendoPanelTabs(){
+  if (!window.VendoConnections) {
+    const err = $('vendoPanelConnectionsError');
+    if (err) {
+      err.textContent = 'Connections module not loaded';
+      err.style.display = '';
+    }
+    return;
+  }
+  const tabs = document.querySelectorAll('#vendoPanelTabs .vendo-panel-tab');
+  tabs.forEach(btn => {
+    if (btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+      _vendoActiveTab = btn.dataset.vendoTab;
+      _renderVendoTabSelection();
+      _paintVendoTabContents(_vendoLatestConnections, _vendoLatestError);
+    });
+  });
+  _renderVendoTabSelection();
+  if (_vendoTabsUnsub) { _vendoTabsUnsub(); _vendoTabsUnsub = null; }
+  _vendoTabsUnsub = window.VendoConnections.subscribe((connections, fetchError) => {
+    _vendoLatestConnections = connections;
+    _vendoLatestError = fetchError;
+    _paintVendoTabContents(connections, fetchError);
+  });
+}
+
+function _renderVendoTabSelection(){
+  document.querySelectorAll('#vendoPanelTabs .vendo-panel-tab').forEach(btn => {
+    const active = btn.dataset.vendoTab === _vendoActiveTab;
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    btn.classList.toggle('vendo-panel-tab-active', active);
+  });
+}
+
+// Categories outside the recognized set fall into "other" so an unmapped
+// DB row still shows up somewhere instead of vanishing.
+function _bucketForCategory(cat){
+  if (cat === 'ai') return 'ai';
+  if (cat === 'communication') return 'communication';
+  return 'other';
+}
+
+function _paintVendoTabContents(connections, fetchError){
+  const list = $('vendoPanelConnections');
+  const empty = $('vendoPanelConnectionsEmpty');
+  const err = $('vendoPanelConnectionsError');
+  if (!list) return;
+
+  list.innerHTML = '';
+  if (empty) empty.style.display = 'none';
+  if (err) err.style.display = 'none';
+
+  if (connections === null || connections === undefined) {
+    const spinner = document.createElement('div');
+    spinner.className = 'integrations-loading';
+    spinner.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="20" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>';
+    list.appendChild(spinner);
+    return;
+  }
+
+  if (fetchError) {
+    if (err) {
+      err.textContent = "Couldn't reach Vendo: " + fetchError;
+      err.style.display = '';
+    }
+    return;
+  }
+
+  const inTab = (connections || []).filter(c => _bucketForCategory(c.category) === _vendoActiveTab);
+  inTab.sort((a, b) => {
+    const ar = a.status === 'connected' ? 0 : 1;
+    const br = b.status === 'connected' ? 0 : 1;
+    return ar - br || (a.display_name || a.slug).localeCompare(b.display_name || b.slug);
+  });
+
+  if (inTab.length === 0) {
+    if (empty) empty.style.display = '';
+    return;
+  }
+  for (const c of inTab) list.appendChild(_buildIntegrationCard(c));
+  const search = document.getElementById('vendoPanelSearch');
+  if (search && search.value) _applyVendoSearch(search.value.trim().toLowerCase());
+}
+
 // One unsubscribe per target list; allows Settings + Vendo panels to coexist.
 const _integrationsUnsubscribers = new Map();
 
@@ -3363,9 +3448,34 @@ function _buildIntegrationCard(c){
   meta.textContent = _describeConnection(c);
   body.appendChild(meta);
 
+  // Telegram-specific enrichment: when connected, surface the bot handle +
+  // a deep link into the Telegram app. The generic "Manage in Vendo" link
+  // alone doesn't tell the user how to actually start chatting.
+  const isTelegramConnected =
+    c.slug === 'telegram' &&
+    c.status === 'connected' &&
+    c.metadata &&
+    typeof c.metadata.telegram_bot_username === 'string';
+
+  if (isTelegramConnected) {
+    const handleRow = document.createElement('div');
+    handleRow.className = 'integration-card-handle';
+    handleRow.textContent = '@' + c.metadata.telegram_bot_username;
+    body.appendChild(handleRow);
+  }
+
   const actions = document.createElement('div');
   actions.className = 'integration-card-actions';
   if (c.status === 'connected') {
+    if (isTelegramConnected) {
+      const open = document.createElement('a');
+      open.href = 'https://t.me/' + encodeURIComponent(c.metadata.telegram_bot_username);
+      open.target = '_blank';
+      open.rel = 'noopener';
+      open.className = 'integration-card-btn-primary';
+      open.textContent = 'Open in Telegram';
+      actions.appendChild(open);
+    }
     const manage = document.createElement('a');
     manage.href = 'https://vendo.run/connections';
     manage.target = '_blank';
@@ -3807,12 +3917,10 @@ function _setupVendoPanelSearch(){
 }
 
 function _applyVendoSearch(q){
-  const cards = document.querySelectorAll(
-    '#vendoPanelProviders .provider-card, #vendoPanelIntegrations .integration-card'
-  );
+  const cards = document.querySelectorAll('#vendoPanelConnections .integration-card');
   let visible = 0;
   cards.forEach(card => {
-    const name = card.querySelector('.provider-card-name, .integration-card-name');
+    const name = card.querySelector('.integration-card-name');
     const text = (name?.textContent || '').toLowerCase();
     const matches = !q || text.includes(q);
     card.style.display = matches ? '' : 'none';

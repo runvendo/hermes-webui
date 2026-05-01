@@ -2865,6 +2865,44 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
 }
 .vendo-panel-search input::placeholder { color: #666; }
 
+/* ── Vendo panel: connection category tabs ── */
+.vendo-panel-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 14px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 6px;
+}
+.vendo-panel-tab {
+  background: transparent;
+  border: none;
+  color: var(--muted, #888);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 8px 8px 0 0;
+  transition: color .12s, background .12s;
+  position: relative;
+  bottom: -1px;
+}
+.vendo-panel-tab:hover { color: var(--text, #f0f0f0); }
+.vendo-panel-tab[aria-selected="true"],
+.vendo-panel-tab.vendo-panel-tab-active {
+  color: var(--text, #f0f0f0);
+  background: rgba(251,191,36,0.08);
+  box-shadow: inset 0 -2px 0 rgba(251,191,36,0.55);
+}
+
+/* Telegram bot handle row on integration cards. */
+.integration-card-handle {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  color: var(--muted, #888);
+  margin-top: 2px;
+}
+
 /* ── Task 11: Identity strip restyle ── */
 #vendoPanelIdentity {
   margin: 0 14px 14px;

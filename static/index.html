@@ -233,21 +233,16 @@
           />
         </div>
 
-        <!-- Providers section -->
-        <div class="vendo-panel-section">
-          <div class="vendo-panel-section-title" data-i18n="vendo_panel_providers_title">AI providers</div>
-          <div class="vendo-panel-section-meta" data-i18n="vendo_panel_providers_meta">Models routed through Vendo, plus your own keys.</div>
-          <div id="vendoPanelProviders" style="display:flex;flex-direction:column;margin-top:8px"></div>
-          <div id="vendoPanelProvidersEmpty" style="display:none;text-align:center;padding:24px 0;color:var(--muted);font-size:13px" data-i18n="providers_empty">No configurable providers found.</div>
+        <!-- Connection tabs: every enabled Vendo integration grouped by category. -->
+        <div class="vendo-panel-tabs" id="vendoPanelTabs" role="tablist">
+          <button type="button" class="vendo-panel-tab" role="tab" data-vendo-tab="communication" aria-selected="true">Communication</button>
+          <button type="button" class="vendo-panel-tab" role="tab" data-vendo-tab="ai" aria-selected="false">AI Providers</button>
+          <button type="button" class="vendo-panel-tab" role="tab" data-vendo-tab="other" aria-selected="false">Other</button>
         </div>
-
-        <!-- Integrations section -->
         <div class="vendo-panel-section">
-          <div class="vendo-panel-section-title" data-i18n="vendo_panel_integrations_title">Integrations</div>
-          <div class="vendo-panel-section-meta" data-i18n="vendo_panel_integrations_meta">Tools your Hermes can use.</div>
-          <div id="vendoPanelIntegrations" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
-          <div id="vendoPanelIntegrationsEmpty" style="display:none;text-align:center;padding:24px 0;color:var(--muted);font-size:13px" data-i18n="integrations_empty">No integrations available yet.</div>
-          <div id="vendoPanelIntegrationsError" style="display:none;text-align:center;padding:16px;color:var(--error,#b91c1c);font-size:13px"></div>
+          <div id="vendoPanelConnections" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
+          <div id="vendoPanelConnectionsEmpty" style="display:none;text-align:center;padding:24px 0;color:var(--muted);font-size:13px">Nothing here yet.</div>
+          <div id="vendoPanelConnectionsError" style="display:none;text-align:center;padding:16px;color:var(--error,#b91c1c);font-size:13px"></div>
         </div>
       </div>
     </div>
