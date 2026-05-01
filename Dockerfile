@@ -90,6 +90,16 @@ RUN echo "__version__ = '${HERMES_VERSION}'" > /apptoo/api/_version.py
 ENV HERMES_WEBUI_HOST=0.0.0.0
 ENV HERMES_WEBUI_PORT=8787
 
+# Bake required vars into the image so they survive the hermeswebuitoo →
+# hermeswebui user switch in docker_init.bash (sudo strips most env, and
+# the manual save/load dance only round-trips vars actually present in env
+# at first-run time — orchestrators that inject vars asynchronously can
+# miss the snapshot). These are fine as defaults; override at runtime to
+# point state at a different volume.
+ENV HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.hermes/webui-mvp
+ENV WANTED_UID=1000
+ENV WANTED_GID=1000
+
 EXPOSE 8787
 
 CMD ["/hermeswebui_init.bash"]
