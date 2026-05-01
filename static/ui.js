@@ -3545,10 +3545,14 @@ function finalizeThinkingCard(){
   row.removeAttribute('data-thinking-active');
 }
 function appendThinking(text=''){
-  // Guard: ignore if session was switched during an async SSE stream.
-  // The old stream's reasoning events can still fire after switch;
-  // without this check they would pollute the new session's DOM.
-  if(!S.session||!S.activeStreamId) return;
+  // Guard: ignore if there's no active session at all. We DON'T require
+  // activeStreamId here — sendMessage() shows the initial TTFT spinner
+  // (empty text) before /api/chat/start returns a stream id, and that
+  // dead-air period is exactly when the indicator matters most. Mid-
+  // stream calls from on_reasoning still target the right session via
+  // #liveAssistantTurn, which renderMessages() rewrites on session
+  // switch — stale spinner can't survive a switch.
+  if(!S.session) return;
   $('emptyState').style.display='none';
   let turn=$('liveAssistantTurn');
   if(!turn){
