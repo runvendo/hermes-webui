@@ -56,7 +56,10 @@ _CATALOG: dict[str, IntegrationMeta] = {
             "api_key": "OPENAI_API_KEY",
             "base_url": "OPENAI_BASE_URL",
         },
-        "proxy_url": "https://openai-proxy.vendo.run",
+        # MUST include /v1 — the OpenAI Python SDK appends "/chat/completions"
+        # straight to base_url. Without /v1 the request hits an unknown route
+        # and the proxy 404s ("route_not_supported").
+        "proxy_url": "https://openai-proxy.vendo.run/v1",
         "docs_url": "https://platform.openai.com/docs",
     },
     "openrouter": {
@@ -71,7 +74,11 @@ _CATALOG: dict[str, IntegrationMeta] = {
             "api_key": "OPENROUTER_API_KEY",
             "base_url": "OPENROUTER_BASE_URL",
         },
-        "proxy_url": "https://openrouter-proxy.vendo.run",
+        # MUST include /api/v1 — OpenRouter sits under /api/v1, NOT /v1 like
+        # OpenAI. Without it the proxy returns 200 + the OpenRouter web app's
+        # HTML homepage, which the OpenAI SDK silently parses as an empty
+        # completion (root cause of the picker's "(empty)" reply bug).
+        "proxy_url": "https://openrouter-proxy.vendo.run/api/v1",
         "docs_url": "https://openrouter.ai/docs",
     },
 }
