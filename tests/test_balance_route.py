@@ -22,10 +22,19 @@ def test_returns_503_when_not_running_on_vendo(monkeypatch):
 def test_returns_balance_payload_when_running_on_vendo(monkeypatch):
     monkeypatch.setenv("VENDO_DEPLOYMENT_ID", "dep_abc")
 
-    fake_body = {"balance_usd": 12.34, "tenant_id": "t_xyz"}
-    with mock.patch("vendo_sdk.client.get", return_value=fake_body):
-        h = _mock_handler()
-        balance_route.handle_balance(h)
+    import vendo
+    from vendo.billing import Balance
+    fake_balance = Balance(
+        credits_remaining_micros=12_340_000,
+        currency="USD",
+        top_up_url="",
+    )
+    fake_billing = mock.MagicMock()
+    fake_billing.balance.return_value = fake_balance
+    monkeypatch.setattr(vendo, "billing", fake_billing)
+
+    h = _mock_handler()
+    balance_route.handle_balance(h)
 
     h.send_response.assert_called_with(200)
     written = h.wfile.write.call_args[0][0]
@@ -36,7 +45,11 @@ def test_returns_balance_payload_when_running_on_vendo(monkeypatch):
 
 def test_returns_502_on_sdk_failure(monkeypatch):
     monkeypatch.setenv("VENDO_DEPLOYMENT_ID", "dep_abc")
-    with mock.patch("vendo_sdk.client.get", side_effect=RuntimeError("boom")):
-        h = _mock_handler()
-        balance_route.handle_balance(h)
+    import vendo
+    fake_billing = mock.MagicMock()
+    fake_billing.balance.side_effect = RuntimeError("boom")
+    monkeypatch.setattr(vendo, "billing", fake_billing)
+
+    h = _mock_handler()
+    balance_route.handle_balance(h)
     h.send_response.assert_called_with(502)
