@@ -240,8 +240,8 @@ def _provider_is_oauth(provider_id: str) -> bool:
 def _managed_slugs_now() -> frozenset:
     """Indirection for tests — resolves Vendo-managed slugs from the SDK."""
     try:
-        from vendo_sdk import connections as _vendo_connections
-        return frozenset(_vendo_connections.connected_slugs())
+        import vendo
+        return frozenset(vendo.connections.connected_slugs())
     except Exception:
         return frozenset()
 
