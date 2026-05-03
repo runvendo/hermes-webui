@@ -145,7 +145,7 @@ def test_connections_route_records_messaging_transitions(monkeypatch):
         [],  # baseline: nothing
         [FakeConn(slug="telegram")],  # new connection
     ]
-    with patch("vendo_sdk.connections.list", side_effect=seq):
+    with patch("vendo.connections.list", side_effect=seq):
         h = mock.MagicMock()
         h.headers = {}
         h.wfile = mock.MagicMock()
