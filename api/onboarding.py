@@ -8,8 +8,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from api.auth import is_auth_enabled
-from vendo_sdk import connections as vendo_connections
-from vendo_sdk import sso as vendo_sso
+from vendo import connections as vendo_connections
+from vendo import sso as vendo_sso
 from api.config import (
     DEFAULT_MODEL,
     DEFAULT_WORKSPACE,
