@@ -171,19 +171,19 @@ async function _renderVendoPanelSdk() {
     }).catch(() => {});
   }
 
-  // Replace providers + integrations sections with <vendo-connection-card> per integration
+  // Replace providers + integrations sections with <vendo-connection-card> per connection
   const provEl = document.getElementById('vendoPanelProviders');
   const intEl = document.getElementById('vendoPanelIntegrations');
-  let integrations;
+  let connections;
   try {
-    integrations = await window.Vendo.integrations.list();
+    connections = await window.Vendo.connections.list();
   } catch (err) {
     if (intEl) intEl.innerHTML = `<div style="color:var(--error);padding:12px">${esc(String(err && err.message || err))}</div>`;
     return;
   }
 
-  const ai = integrations.filter(i => i.enabled && i.category === 'ai');
-  const other = integrations.filter(i => i.enabled && i.category !== 'ai');
+  const ai = connections.filter(c => c.category === 'ai');
+  const other = connections.filter(c => c.category !== 'ai');
 
   if (provEl) {
     provEl.innerHTML = '';
