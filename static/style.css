@@ -3015,3 +3015,17 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
   font-size: 13px;
   margin: 0;
 }
+
+/* @vendodev/sdk web components — inherit hermes-webui's theme */
+:root {
+  --vendo-color-brand: var(--accent);
+  --vendo-color-surface: var(--card, var(--bg));
+  --vendo-color-border: var(--border, rgba(255, 255, 255, 0.12));
+  --vendo-color-muted: var(--muted);
+  --vendo-color-success: var(--success);
+  --vendo-color-warning: var(--warning);
+  --vendo-color-error: var(--error);
+  --vendo-radius: 10px;
+}
+html.vendo-inactive [data-vendo-only] { display: none !important; }
+.vendo-panel-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
