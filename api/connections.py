@@ -27,6 +27,11 @@ def handle_connections(handler: Any) -> None:
         _json(handler, {"error": "fetch_failed", "detail": str(exc)}, status=502)
         return
 
+    # Feed messaging-gateway-restart hint state. The frontend polls
+    # /api/connections, so this is the natural place to record per-poll
+    # connection transitions.
+    messaging_status.record_poll(items)
+
     payload = {"connections": [asdict(c) for c in items]}
     _json(handler, payload, status=200)
 

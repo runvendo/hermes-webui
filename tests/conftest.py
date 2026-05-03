@@ -439,7 +439,7 @@ def pytest_configure(config):
 def pytest_runtest_setup(item):
     """Skip test_server fixture for tests marked with no_server."""
     # Unit test modules that don't need the server
-    unit_test_modules = {'test_vendo_catalog.py'}
+    unit_test_modules: set[str] = set()
 
     if item.fspath.basename in unit_test_modules or item.get_closest_marker('no_server'):
         # Remove test_server from autouse fixtures for this test
