@@ -461,7 +461,7 @@ from api.onboarding import (
     get_onboarding_status,
     complete_onboarding,
 )
-from vendo_sdk import sso as vendo_sso
+from vendo import sso as vendo_sso
 
 # Approval system (optional -- graceful fallback if agent not available)
 try:
