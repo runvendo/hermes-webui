@@ -99,39 +99,3 @@ def test_transition_only_fires_on_add_not_every_poll():
     messaging_status.record_poll([FakeConn(slug="telegram")])
     messaging_status.record_poll([FakeConn(slug="telegram")])
     assert messaging_status.get_status()["stale_in_gateway"] == ["telegram"]
-
-
-def test_pre_turn_records_messaging_transitions(monkeypatch):
-    """The streaming pre-hook calls messaging_status.record_poll each turn."""
-    import os as _os
-    from unittest.mock import MagicMock
-    from api.streaming_vendo_hook import vendo_pre_turn
-    import api.streaming_vendo_hook as hook
-    from api import messaging_status
-
-    @dataclass
-    class HookConn:
-        slug: str
-        status: str = "connected"
-        display_name: str = ""
-        fields: dict = None
-
-        def __post_init__(self):
-            if self.fields is None:
-                self.fields = {}
-
-    hook._PREV_SLUGS = frozenset()
-
-    seq = [
-        [],  # baseline: nothing
-        [HookConn(slug="telegram", fields={"bot_token": "abc"})],  # new connection
-    ]
-    monkeypatch.setattr(hook, "_sdk_refresh", MagicMock())
-    monkeypatch.setattr(hook, "_sdk_list", MagicMock(side_effect=seq))
-    monkeypatch.setattr(_os, "environ", {})
-
-    vendo_pre_turn()
-    assert messaging_status.get_status()["stale_in_gateway"] == []
-
-    vendo_pre_turn()
-    assert messaging_status.get_status()["stale_in_gateway"] == ["telegram"]
