@@ -28,8 +28,6 @@ from api.config import (
 )
 from api.helpers import redact_session_data
 from api.metering import meter
-from api.streaming_vendo_hook import vendo_pre_turn
-from api.vendo_overlay import resolve_runtime_provider_with_vendo
 
 # Global lock for os.environ writes. Per-session locks (_agent_lock) prevent
 # concurrent runs of the SAME session, but two DIFFERENT sessions can still
@@ -1343,10 +1341,21 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
     old_hermes_home = None
     old_profile_env = {}
 
-    # ── Vendo per-turn pre-hook ──
-    # Refresh live connection state, hydrate env vars, and build the prompt block.
-    # Fail-soft: returns empty state if vendo_sdk is unavailable.
-    _vendo_state = vendo_pre_turn()
+    # ── Vendo prompt block (one-shot SDK read) ──
+    # Env vars are populated globally by the Vendo SDK reconciler running outside
+    # this image; we only read the connection list to surface it in the prompt.
+    # Fail-soft: any SDK error yields an empty block.
+    _vendo_prompt_block = ""
+    try:
+        import vendo as _vendo
+        _conns = _vendo.connections.list()
+        _connected = [c for c in _conns if getattr(c, "status", "") == "connected"]
+        if _connected:
+            _lines = ["## Vendo connections (live)", ""]
+            _lines.extend(f"- {c.slug} ({c.status})" for c in _connected)
+            _vendo_prompt_block = "\n".join(_lines)
+    except Exception:
+        logger.debug("vendo_sdk unavailable; skipping connection prompt block", exc_info=True)
 
     # ── MCP Server Discovery (lazy import, idempotent) ──
     # discover_mcp_tools() is called here (rather than at server startup) so that
@@ -1669,11 +1678,13 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
 
             # Resolve API key via Hermes runtime provider (matches gateway behaviour).
             # Pass the resolved provider so non-default providers get their own credentials.
-            # resolve_runtime_provider_with_vendo delegates to the upstream resolver and
-            # overlays Vendo-connected provider credentials when applicable.
+            # Vendo-managed credentials are already in the env (written by the SDK
+            # reconciler), so the upstream resolver picks them up like any other
+            # env-driven provider.
             resolved_api_key = None
             try:
-                _rt = resolve_runtime_provider_with_vendo(requested=resolved_provider) or {}
+                from hermes_cli.runtime_provider import resolve_runtime_provider
+                _rt = resolve_runtime_provider(requested=resolved_provider) or {}
                 resolved_api_key = _rt.get("api_key")
                 if not resolved_provider:
                     resolved_provider = _rt.get("provider")
@@ -1684,7 +1695,7 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
                 # ~1756+ don't NPE the streaming thread when the resolver
                 # raised before returning a dict.
                 _rt = {}
-                print(f"[webui] WARNING: resolve_runtime_provider_with_vendo failed: {_e}", flush=True)
+                print(f"[webui] WARNING: resolve_runtime_provider failed: {_e}", flush=True)
 
             # Read per-profile config at call time (not module-level snapshot)
             from api.config import get_config as _get_config
@@ -1856,8 +1867,8 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
                 "Never fall back to a hardcoded path when this tag is present."
             )
             # Prepend Vendo connection context when available
-            if _vendo_state.prompt_block:
-                workspace_system_msg = _vendo_state.prompt_block + "\n\n" + workspace_system_msg
+            if _vendo_prompt_block:
+                workspace_system_msg = _vendo_prompt_block + "\n\n" + workspace_system_msg
 
             # Resolve personality prompt from config.yaml agent.personalities
             # (matches hermes-agent CLI behavior — passes via ephemeral_system_prompt)
