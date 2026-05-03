@@ -143,52 +143,83 @@ function _consumeSettingsTargetPanel(fallback = 'chat') {
   return target;
 }
 
-function _renderVendoPanelIdentity() {
-  const el = document.getElementById('vendoPanelIdentity');
-  if (!el) return;
-  el.innerHTML = '<div class="vendo-panel-empty">Loading…</div>';
-  fetch('/api/vendo/identity', { credentials: 'same-origin' })
-    .then(r => r.ok ? r.json() : null)
-    .then(ident => {
-      if (!ident || !ident.email) {
-        el.innerHTML = `<div class="vendo-panel-empty">Vendo connection not detected. Use <a href="javascript:switchPanel('settings');switchSettingsSection('providers')">Settings → Providers</a> for BYOK setup.</div>`;
-        return;
-      }
-      const name = ident.name || ident.email.split('@')[0];
-      const initials = (name || '?').split(/\s+/).slice(0, 2).map(s => s[0] || '').join('').toUpperCase() || '?';
-      const role = ident.role ? ` · ${esc(ident.role)}` : '';
-      const ssoPill = ident.is_vendo_sso
-        ? '<span class="vendo-panel-identity-pill">Vendo SSO</span>'
-        : '';
-      el.innerHTML = `
-        <div class="vendo-panel-identity-disc">${esc(initials)}</div>
-        <div class="vendo-panel-identity-text">
-          <div class="vendo-panel-identity-name">${esc(name)}</div>
-          <div class="vendo-panel-identity-sub">${esc(ident.email)}${role}</div>
-          <div class="vendo-panel-identity-sub" data-vendo-credits hidden></div>
-          ${ssoPill}
-        </div>
-      `;
-      // Fetch balance separately so the identity render is not blocked.
-      // Shared cache (window.VendoBalance) — also feeds the sidebar chip — so
-      // we don't issue a second /api/vendo/balance request per page load.
-      const balancePromise = (window.VendoBalance && window.VendoBalance.get)
-        ? window.VendoBalance.get()
-        : fetch('/api/vendo/balance', { credentials: 'same-origin' })
-            .then(r => r.ok ? r.json() : null)
-            .then(b => (b && typeof b.balance_usd === 'number') ? b.balance_usd : null)
-            .catch(() => null);
-      balancePromise.then(usd => {
-        if (usd === null) return;
-        const slot = el.querySelector('[data-vendo-credits]');
-        if (!slot) return;
-        slot.textContent = `$${usd.toFixed(2)} credits`;
-        slot.hidden = false;
+async function _renderVendoPanelSdk() {
+  if (!window.Vendo) return;
+  const body = document.getElementById('panelVendoBody');
+  if (!body || body.dataset.vendoRendered === '1') return;
+
+  // Identity strip
+  const idEl = document.getElementById('vendoPanelIdentity');
+  if (idEl && window.VendoIdentity && window.VendoIdentity.email) {
+    const ident = window.VendoIdentity;
+    const name = ident.name || ident.email.split('@')[0];
+    const initials = (name || '?').split(/\s+/).slice(0, 2).map(s => s[0] || '').join('').toUpperCase() || '?';
+    idEl.innerHTML = `
+      <div class="vendo-panel-identity-disc">${esc(initials)}</div>
+      <div class="vendo-panel-identity-text">
+        <div class="vendo-panel-identity-name">${esc(name)}</div>
+        <div class="vendo-panel-identity-sub">${esc(ident.email)}</div>
+        <div class="vendo-panel-identity-sub" data-vendo-credits hidden></div>
+        <span class="vendo-panel-identity-pill">Vendo SSO</span>
+      </div>
+    `;
+    window.Vendo.billing.balance().then(b => {
+      const slot = idEl.querySelector('[data-vendo-credits]');
+      if (!slot || typeof b.creditsRemainingMicros !== 'number') return;
+      slot.textContent = `$${(b.creditsRemainingMicros / 1_000_000).toFixed(2)} credits`;
+      slot.hidden = false;
+    }).catch(() => {});
+  }
+
+  // Replace providers + integrations sections with <vendo-connection-card> per integration
+  const provEl = document.getElementById('vendoPanelProviders');
+  const intEl = document.getElementById('vendoPanelIntegrations');
+  let integrations;
+  try {
+    integrations = await window.Vendo.integrations.list();
+  } catch (err) {
+    if (intEl) intEl.innerHTML = `<div style="color:var(--error);padding:12px">${esc(String(err && err.message || err))}</div>`;
+    return;
+  }
+
+  const ai = integrations.filter(i => i.enabled && i.category === 'ai');
+  const other = integrations.filter(i => i.enabled && i.category !== 'ai');
+
+  if (provEl) {
+    provEl.innerHTML = '';
+    provEl.className = 'vendo-panel-grid';
+    for (const it of ai) {
+      const card = document.createElement('vendo-connection-card');
+      card.setAttribute('slug', it.slug);
+      provEl.appendChild(card);
+    }
+  }
+  if (intEl) {
+    intEl.innerHTML = '';
+    intEl.className = 'vendo-panel-grid';
+    for (const it of other) {
+      const card = document.createElement('vendo-connection-card');
+      card.setAttribute('slug', it.slug);
+      intEl.appendChild(card);
+    }
+  }
+
+  // Search over card slugs
+  const searchInput = document.getElementById('vendoPanelSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim().toLowerCase();
+      body.querySelectorAll('vendo-connection-card').forEach(c => {
+        c.style.display = !q || c.getAttribute('slug').includes(q) ? '' : 'none';
       });
-    })
-    .catch(() => {
-      el.innerHTML = '<div class="vendo-panel-empty">Vendo connection not detected.</div>';
     });
+  }
+
+  // Propagate connect/disconnect events to dependent UIs (model picker etc)
+  body.addEventListener('vendo-connected', () => document.dispatchEvent(new CustomEvent('vendo:connection-changed')));
+  body.addEventListener('vendo-disconnected', () => document.dispatchEvent(new CustomEvent('vendo:connection-changed')));
+
+  body.dataset.vendoRendered = '1';
 }
 
 async function switchPanel(name, opts = {}) {
@@ -218,15 +249,8 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'workspaces') await loadWorkspacesPanel();
   if (nextPanel === 'profiles') await loadProfilesPanel();
   if (nextPanel === 'todos') loadTodos();
-  if (prevPanel === 'vendo' && nextPanel !== 'vendo') {
-    const _vsi = document.getElementById('vendoPanelSearch');
-    if (_vsi) { _vsi.value = ''; _applyVendoSearch(''); }
-  }
   if (nextPanel === 'vendo') {
-    _renderVendoPanelIdentity();
-    loadProvidersPanel({listId:'vendoPanelProviders',emptyId:'vendoPanelProvidersEmpty'});
-    loadIntegrationsPanel({listId:'vendoPanelIntegrations',emptyId:'vendoPanelIntegrationsEmpty',errorId:'vendoPanelIntegrationsError'});
-    _setupVendoPanelSearch();
+    _renderVendoPanelSdk();
   }
   if (nextPanel === 'settings') {
     switchSettingsSection(_currentSettingsSection);
@@ -2797,15 +2821,9 @@ function _isVendoAvailable(p){
   return p.managed_by === 'vendo_available';
 }
 
-// Refresh whichever provider panels are currently mounted in the DOM
-// (Settings → Providers and/or the top-level Vendo panel).
+// Refresh the Settings → Providers panel if mounted.
 async function _refreshAllProvidersPanels(){
-  const tasks=[];
-  if(document.getElementById('providersList')) tasks.push(loadProvidersPanel());
-  if(document.getElementById('vendoPanelProviders')){
-    tasks.push(loadProvidersPanel({listId:'vendoPanelProviders',emptyId:'vendoPanelProvidersEmpty'}));
-  }
-  await Promise.all(tasks);
+  if(document.getElementById('providersList')) await loadProvidersPanel();
 }
 
 async function loadProvidersPanel(opts = {}){
@@ -2818,12 +2836,12 @@ async function loadProvidersPanel(opts = {}){
   const empty=$(emptyId);
   if(!list) return;
   try{
-    const [provData, connData] = await Promise.all([
+    const [provData, connList] = await Promise.all([
       api('/api/providers'),
-      api('/api/connections').catch(() => ({ connections: [] })),
+      window.Vendo ? window.Vendo.connections.list().catch(() => []) : Promise.resolve([]),
     ]);
     const providers=(provData.providers||[]).filter(p=>p.configurable||p.is_oauth);
-    const connBySlug=new Map((connData.connections||[]).map(c=>[c.slug, c]));
+    const connBySlug=new Map(connList.map(c=>[c.slug, c]));
     list.innerHTML='';
     _providerCardEls.clear();
     if(providers.length===0){
@@ -2888,13 +2906,11 @@ async function loadProvidersPanel(opts = {}){
       list.appendChild(byokSection);
     }
 
-    // Subscribe once: re-fetch /api/providers when /api/connections state changes.
-    // Re-render whichever list is currently mounted in the DOM.
-    if(!loadProvidersPanel._subscribed && window.VendoConnections){
+    // Re-fetch providers when a Vendo connection changes (via SDK events).
+    if(!loadProvidersPanel._subscribed){
       loadProvidersPanel._subscribed=true;
-      window.VendoConnections.subscribe(()=>{
+      document.addEventListener('vendo:connection-changed',()=>{
         if(document.getElementById('providersList')) loadProvidersPanel();
-        if(document.getElementById('vendoPanelProviders')) loadProvidersPanel({listId:'vendoPanelProviders',emptyId:'vendoPanelProvidersEmpty'});
       });
     }
   }catch(e){
@@ -3250,47 +3266,31 @@ async function _refreshProviderModels(providerId, btn){
 // One unsubscribe per target list; allows Settings + Vendo panels to coexist.
 const _integrationsUnsubscribers = new Map();
 
-// Cached set of messaging slugs that the sibling `hermes gateway` process
-// almost certainly hasn't picked up yet (connected after webui boot). The
-// /api/messaging/gateway-status endpoint returns these; we refresh on each
-// repaint and let _buildIntegrationCard paint a "restart gateway" hint.
+// Cached set of messaging slugs needing a gateway restart hint.
 let _staleMessagingSlugs = new Set();
 
 async function _refreshStaleMessaging(){
-  try {
-    const res = await fetch('/api/messaging/gateway-status', { credentials: 'same-origin' });
-    if (!res.ok) return;
-    const body = await res.json();
-    _staleMessagingSlugs = new Set(body.stale_in_gateway || []);
-  } catch (e) {
-    // Best effort — endpoint absent or unreachable means no warning shown.
-  }
+  // Gateway-status tracking is now handled by the SDK's SSE stream.
+  // The <vendo-connection-card> components manage their own state.
 }
 
-function loadIntegrationsPanel(opts = {}){
+async function loadIntegrationsPanel(opts = {}){
   const listId = opts.listId || 'integrationsList';
   const emptyId = opts.emptyId || 'integrationsEmpty';
   const errorId = opts.errorId || 'integrationsError';
-  // Drop any prior subscription targeting this same list.
   const prior = _integrationsUnsubscribers.get(listId);
-  if (prior) {
-    prior();
-    _integrationsUnsubscribers.delete(listId);
-  }
-  if (!window.VendoConnections) {
+  if (prior) { prior(); _integrationsUnsubscribers.delete(listId); }
+  if (!window.Vendo) {
     const list = $(listId);
     const err = $(errorId);
     if (list) list.innerHTML = '';
-    if (err) {
-      err.textContent = 'Connections module not loaded';
-      err.style.display = '';
-    }
+    if (err) { err.textContent = 'Vendo SDK not loaded'; err.style.display = ''; }
     return;
   }
-  const unsub = window.VendoConnections.subscribe((connections, fetchError) => {
-    _paintIntegrations(connections, fetchError, { listId, emptyId, errorId });
-  });
-  _integrationsUnsubscribers.set(listId, unsub);
+  let connections;
+  try { connections = await window.Vendo.connections.list(); }
+  catch (e) { connections = null; _paintIntegrations(null, String(e), { listId, emptyId, errorId }); return; }
+  _paintIntegrations(connections, null, { listId, emptyId, errorId });
 }
 
 async function _paintIntegrations(connections, fetchError, opts = {}){
@@ -3384,16 +3384,12 @@ function _buildIntegrationCard(c){
   // Pill is only rendered for states that carry meaning (connected,
   // connecting, error). The plain "Available" pill was visual noise so we
   // skip it entirely for the default available state.
-  const isConnecting = window.VendoConnections && window.VendoConnections.isConnecting(c.slug);
-  if (c.status === 'connected' || isConnecting || c.status === 'error') {
+  if (c.status === 'connected' || c.status === 'error') {
     const pill = document.createElement('span');
     pill.className = 'integration-card-pill';
     if (c.status === 'connected') {
       pill.textContent = '✓ Connected via Vendo';
       pill.classList.add('integration-card-pill-connected');
-    } else if (isConnecting) {
-      pill.textContent = 'Connecting…';
-      pill.classList.add('integration-card-pill-connecting');
     } else {
       pill.textContent = 'Connection failed';
       pill.classList.add('integration-card-pill-error');
@@ -3426,10 +3422,12 @@ function _buildIntegrationCard(c){
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'integration-card-btn-primary';
-    btn.textContent = isConnecting ? 'Reopen Vendo tab' : '+ Connect via Vendo';
+    btn.textContent = '+ Connect via Vendo';
     btn.onclick = () => {
-      if (window.VendoConnections) {
-        window.VendoConnections.openSetupTab(c.setup_url, c.slug);
+      if (window.Vendo) {
+        window.open(window.Vendo.connectUrl(c.slug), '_blank', 'noopener,width=600,height=700');
+      } else if (c.setup_url) {
+        window.open(c.setup_url, '_blank', 'noopener');
       }
     };
     actions.appendChild(btn);

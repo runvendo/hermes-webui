@@ -101,57 +101,37 @@ def test_transition_only_fires_on_add_not_every_poll():
     assert messaging_status.get_status()["stale_in_gateway"] == ["telegram"]
 
 
-def test_route_returns_payload():
-    """GET /api/messaging/gateway-status returns the current snapshot."""
-    from api import connections as connections_route, messaging_status
+def test_pre_turn_records_messaging_transitions(monkeypatch):
+    """The streaming pre-hook calls messaging_status.record_poll each turn."""
+    import os as _os
+    from unittest.mock import MagicMock
+    from api.streaming_vendo_hook import vendo_pre_turn
+    import api.streaming_vendo_hook as hook
+    from api import messaging_status
 
-    messaging_status.record_poll([])  # baseline
-    messaging_status.record_poll([FakeConn(slug="discord")])
+    @dataclass
+    class HookConn:
+        slug: str
+        status: str = "connected"
+        display_name: str = ""
+        fields: dict = None
 
-    h = mock.MagicMock()
-    h.headers = {}
-    h.wfile = mock.MagicMock()
-    connections_route.handle_messaging_gateway_status(h)
+        def __post_init__(self):
+            if self.fields is None:
+                self.fields = {}
 
-    h.send_response.assert_called_with(200)
-    body = json.loads(h.wfile.write.call_args[0][0].decode())
-    assert body["stale_in_gateway"] == ["discord"]
-    assert body["first_poll_done"] is True
-    assert isinstance(body["process_started_at"], (int, float))
-
-
-def test_route_works_without_running_on_vendo():
-    """Endpoint returns 200 even when not on Vendo — UI just sees empty list."""
-    from api import connections as connections_route
-
-    h = mock.MagicMock()
-    h.headers = {}
-    h.wfile = mock.MagicMock()
-    connections_route.handle_messaging_gateway_status(h)
-
-    h.send_response.assert_called_with(200)
-    body = json.loads(h.wfile.write.call_args[0][0].decode())
-    assert body["stale_in_gateway"] == []
-
-
-def test_connections_route_records_messaging_transitions(monkeypatch):
-    """GET /api/connections feeds messaging_status.record_poll each request."""
-    from unittest.mock import patch
-    from api import connections as connections_route, messaging_status
-
-    monkeypatch.setenv("VENDO_DEPLOYMENT_ID", "dep_abc")
+    hook._PREV_SLUGS = frozenset()
 
     seq = [
         [],  # baseline: nothing
-        [FakeConn(slug="telegram")],  # new connection
+        [HookConn(slug="telegram", fields={"bot_token": "abc"})],  # new connection
     ]
-    with patch("vendo.connections.list", side_effect=seq):
-        h = mock.MagicMock()
-        h.headers = {}
-        h.wfile = mock.MagicMock()
+    monkeypatch.setattr(hook, "_sdk_refresh", MagicMock())
+    monkeypatch.setattr(hook, "_sdk_list", MagicMock(side_effect=seq))
+    monkeypatch.setattr(_os, "environ", {})
 
-        connections_route.handle_connections(h)
-        assert messaging_status.get_status()["stale_in_gateway"] == []
+    vendo_pre_turn()
+    assert messaging_status.get_status()["stale_in_gateway"] == []
 
-        connections_route.handle_connections(h)
-        assert messaging_status.get_status()["stale_in_gateway"] == ["telegram"]
+    vendo_pre_turn()
+    assert messaging_status.get_status()["stale_in_gateway"] == ["telegram"]

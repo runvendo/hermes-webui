@@ -94,8 +94,7 @@ const _ARCHIVE_EXTS=/\.(zip|tar|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz)$/i;
 let _dynamicModelLabels={};
 
 // Cached metadata for the model picker UI: providers from /api/providers and
-// AI connections from /api/connections, keyed by provider/connection slug.
-// Populated lazily on dropdown open and refreshed after live-model fetches.
+// connections from the Vendo SDK, keyed by provider/connection slug.
 let _modelPickerProvByID=null;     // Map<provider.id, provider>
 let _modelPickerConnBySlug=null;   // Map<connection.slug, connection>
 let _modelPickerFetchInflight=null;
@@ -105,12 +104,12 @@ async function _ensureModelPickerMetadata(force){
   if(_modelPickerFetchInflight) return _modelPickerFetchInflight;
   _modelPickerFetchInflight=(async()=>{
     try{
-      const [provRes, connRes]=await Promise.all([
+      const [provRes, connList]=await Promise.all([
         fetch('/api/providers',{credentials:'include'}).then(r=>r.ok?r.json():{providers:[]}).catch(()=>({providers:[]})),
-        fetch('/api/connections',{credentials:'same-origin'}).then(r=>r.ok?r.json():{connections:[]}).catch(()=>({connections:[]})),
+        window.Vendo ? window.Vendo.connections.list().catch(()=>[]) : Promise.resolve([]),
       ]);
       _modelPickerProvByID=new Map((provRes.providers||[]).map(p=>[p.id,p]));
-      _modelPickerConnBySlug=new Map((connRes.connections||[]).map(c=>[c.slug,c]));
+      _modelPickerConnBySlug=new Map(connList.map(c=>[c.slug,c]));
     }finally{
       _modelPickerFetchInflight=null;
     }
@@ -118,20 +117,16 @@ async function _ensureModelPickerMetadata(force){
   return _modelPickerFetchInflight;
 }
 
-// Keep the picker metadata in sync with VendoConnections polling, so
-// connect/disconnect events from another tab refresh logos + connected
-// state without requiring a manual reload. Only re-renders if the picker
-// is currently open.
+// Re-fetch model picker metadata when a connection changes via SDK events.
 let _modelPickerConnSubscribed=false;
 function _wireModelPickerConnSubscription(){
   if(_modelPickerConnSubscribed) return;
-  if(!window.VendoConnections || typeof window.VendoConnections.subscribe!=='function') return;
   _modelPickerConnSubscribed=true;
-  window.VendoConnections.subscribe((connections)=>{
-    if(!Array.isArray(connections)) return;
-    _modelPickerConnBySlug=new Map(connections.map(c=>[c.slug,c]));
-    const dd=document.getElementById('composerModelDropdown');
-    if(dd && dd.classList.contains('open')) renderModelDropdown();
+  document.addEventListener('vendo:connection-changed',()=>{
+    _ensureModelPickerMetadata(true).then(()=>{
+      const dd=document.getElementById('composerModelDropdown');
+      if(dd && dd.classList.contains('open')) renderModelDropdown();
+    });
   });
 }
 
@@ -141,10 +136,7 @@ function _modelPickerLogoSrc(url){
   return url.startsWith('http') ? url : `https://vendo.run${url}`;
 }
 
-// Build a circular logo tile for a provider section header. Mirrors the
-// pattern in panels.js _buildVendoLogoTile() but works with the leaner data
-// available from /api/providers (display_name) merged with /api/connections
-// (logo_url, brand_color).
+// Build a circular logo tile for a provider section header.
 function _buildModelPickerLogo(meta){
   const tile=document.createElement('span');
   tile.className='model-provider-logo';
@@ -534,10 +526,9 @@ function _collectModelDataByProvider(sel){
 // Decide whether a provider is "AI-connected" and should appear as a section.
 // A provider qualifies when it has working credentials (`has_key`) — this
 // covers BYOK keys, OAuth (e.g. Copilot), and Vendo-managed bindings (Vendo
-// flips has_key=true once bound). For Vendo-available providers that are not
-// yet bound (`managed_by==='vendo_available'`), we additionally require the
-// matching /api/connections entry to be `connected` so we never render an
-// empty section for an "Available" tile.
+// For Vendo-available providers that are not yet bound
+// (`managed_by==='vendo_available'`), we require the connection to be
+// `connected` so we never render an empty section for an "Available" tile.
 function _isPickerConnectedProvider(prov, conn){
   if(!prov) return false;
   if(prov.has_key) return true;
@@ -641,9 +632,9 @@ function renderModelDropdown(){
         return;
       }
       const firstAi=Array.from(connMeta.values()).find(c=>c.category==='ai' && c.setup_url);
-      if(firstAi && window.VendoConnections){
-        window.VendoConnections.openSetupTab(firstAi.setup_url, firstAi.slug);
-      } else if(firstAi){
+      if(firstAi && window.Vendo){
+        window.open(window.Vendo.connectUrl(firstAi.slug),'_blank','noopener,width=600,height=700');
+      } else if(firstAi && firstAi.setup_url){
         window.open(firstAi.setup_url,'_blank','noopener');
       }
     };

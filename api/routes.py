@@ -661,6 +661,36 @@ button:hover{background:rgba(124,185,255,.25)}
 <script src="/static/login.js"></script>
 </body></html>"""
 
+# ── Vendo meta-tag injection ─────────────────────────────────────────────────
+
+
+def _render_vendo_meta(handler) -> str:
+    """Render Vendo bootstrap meta tags from env + SSO headers.
+
+    Returns empty string when VENDO_API_KEY is unset so the Vendo surface
+    in the SPA hides itself.
+    """
+    import html as _h
+    api_key = os.environ.get("VENDO_API_KEY", "").strip()
+    if not api_key:
+        return ""
+    base_url = os.environ.get("VENDO_API_BASE_URL", "https://vendo.run").strip()
+    parts = [
+        f'<meta name="vendo-api-key" content="{_h.escape(api_key, quote=True)}">',
+        f'<meta name="vendo-base-url" content="{_h.escape(base_url, quote=True)}">',
+    ]
+    uid = handler.headers.get("X-Vendo-User-Id") or ""
+    if uid:
+        parts.append(f'<meta name="vendo-user-id" content="{_h.escape(uid, quote=True)}">')
+        email = handler.headers.get("X-Vendo-User-Email") or ""
+        if email:
+            parts.append(f'<meta name="vendo-user-email" content="{_h.escape(email, quote=True)}">')
+        name = handler.headers.get("X-Vendo-User-Name") or ""
+        if name:
+            parts.append(f'<meta name="vendo-user-name" content="{_h.escape(name, quote=True)}">')
+    return "\n".join(parts)
+
+
 # ── GET routes ────────────────────────────────────────────────────────────────
 
 
@@ -668,11 +698,9 @@ def handle_get(handler, parsed) -> bool:
     """Handle all GET routes. Returns True if handled, False for 404."""
 
     if parsed.path in ("/", "/index.html"):
-        return t(
-            handler,
-            _INDEX_HTML_PATH.read_text(encoding="utf-8"),
-            content_type="text/html; charset=utf-8",
-        )
+        html = _INDEX_HTML_PATH.read_text(encoding="utf-8")
+        html = html.replace("<!--VENDO_META-->", _render_vendo_meta(handler))
+        return t(handler, html, content_type="text/html; charset=utf-8")
 
     if parsed.path == "/login":
         _settings = load_settings()
@@ -789,18 +817,6 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/providers":
         return j(handler, get_providers())
 
-    if parsed.path == "/api/connections":
-        from api.connections import handle_connections
-        return handle_connections(handler)
-
-    if parsed.path == "/api/messaging/gateway-status":
-        from api.connections import handle_messaging_gateway_status
-        return handle_messaging_gateway_status(handler)
-
-    if parsed.path == "/api/vendo/balance":
-        from api.balance import handle_balance
-        return handle_balance(handler)
-
     if parsed.path == "/api/settings":
         settings = load_settings()
         # Never expose the stored password hash to clients
@@ -822,6 +838,9 @@ def handle_get(handler, parsed) -> bool:
 
     if parsed.path == "/api/onboarding/status":
         return j(handler, get_onboarding_status(handler))
+
+    if parsed.path.startswith("/static/vendor/vendodev-sdk/"):
+        return _serve_vendor_sdk(handler, parsed)
 
     if parsed.path.startswith("/static/"):
         return _serve_static(handler, parsed)
@@ -2061,6 +2080,36 @@ _STATIC_MIME = {
 }
 # MIME types that are text-based and should carry charset=utf-8
 _TEXT_MIME_TYPES = {"text/css", "application/javascript", "text/html", "image/svg+xml", "text/plain"}
+
+
+def _serve_vendor_sdk(handler, parsed):
+    """Serve files from node_modules/@vendodev/sdk/dist/ at /static/vendor/vendodev-sdk/*."""
+    rel = parsed.path[len("/static/vendor/vendodev-sdk/"):]
+    parts = [p for p in rel.split("/") if p]
+    if any(p == ".." for p in parts) or not parts:
+        handler.send_response(404)
+        handler.end_headers()
+        return True
+    sdk_root = (Path(__file__).parent.parent / "node_modules" / "@vendodev" / "sdk" / "dist").resolve()
+    target = (sdk_root / "/".join(parts)).resolve()
+    try:
+        target.relative_to(sdk_root)
+    except ValueError:
+        handler.send_response(404)
+        handler.end_headers()
+        return True
+    if not target.is_file():
+        handler.send_response(404)
+        handler.end_headers()
+        return True
+    body = target.read_bytes()
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/javascript; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Cache-Control", "public, max-age=300")
+    handler.end_headers()
+    handler.wfile.write(body)
+    return True
 
 
 def _serve_static(handler, parsed):
