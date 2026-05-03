@@ -14,7 +14,7 @@ import tempfile
 import time
 
 from api.config import STATE_DIR, load_settings
-from vendo_sdk import sso as vendo_sso
+from vendo import sso as vendo_sso
 
 logger = logging.getLogger(__name__)
 
