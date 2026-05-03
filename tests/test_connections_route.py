@@ -33,7 +33,7 @@ def test_returns_connections_payload_when_running_on_vendo(monkeypatch):
         metadata={}, setup_url=None, error_message=None,
     )
 
-    with mock.patch("vendo_sdk.connections.list", return_value=[fake_conn]):
+    with mock.patch("vendo.connections.list", return_value=[fake_conn]):
         h = _mock_handler()
         connections_route.handle_connections(h)
 
@@ -46,7 +46,7 @@ def test_returns_connections_payload_when_running_on_vendo(monkeypatch):
 
 def test_returns_502_on_sdk_failure(monkeypatch):
     monkeypatch.setenv("VENDO_DEPLOYMENT_ID", "dep_abc")
-    with mock.patch("vendo_sdk.connections.list", side_effect=RuntimeError("boom")):
+    with mock.patch("vendo.connections.list", side_effect=RuntimeError("boom")):
         h = _mock_handler()
         connections_route.handle_connections(h)
     h.send_response.assert_called_with(502)
