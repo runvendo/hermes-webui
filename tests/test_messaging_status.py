@@ -134,37 +134,24 @@ def test_route_works_without_running_on_vendo():
     assert body["stale_in_gateway"] == []
 
 
-def test_pre_turn_records_messaging_transitions(monkeypatch):
-    """The streaming pre-hook calls messaging_status.record_poll each turn."""
-    import os as _os
-    from unittest.mock import MagicMock
-    from api.streaming_vendo_hook import vendo_pre_turn
-    import api.streaming_vendo_hook as hook
-    from api import messaging_status
+def test_connections_route_records_messaging_transitions(monkeypatch):
+    """GET /api/connections feeds messaging_status.record_poll each request."""
+    from unittest.mock import patch
+    from api import connections as connections_route, messaging_status
 
-    @dataclass
-    class HookConn:
-        slug: str
-        status: str = "connected"
-        display_name: str = ""
-        fields: dict = None
-
-        def __post_init__(self):
-            if self.fields is None:
-                self.fields = {}
-
-    hook._PREV_SLUGS = frozenset()
+    monkeypatch.setenv("VENDO_DEPLOYMENT_ID", "dep_abc")
 
     seq = [
         [],  # baseline: nothing
-        [HookConn(slug="telegram", fields={"bot_token": "abc"})],  # new connection
+        [FakeConn(slug="telegram")],  # new connection
     ]
-    monkeypatch.setattr(hook, "_sdk_refresh", MagicMock())
-    monkeypatch.setattr(hook, "_sdk_list", MagicMock(side_effect=seq))
-    monkeypatch.setattr(_os, "environ", {})
+    with patch("vendo_sdk.connections.list", side_effect=seq):
+        h = mock.MagicMock()
+        h.headers = {}
+        h.wfile = mock.MagicMock()
 
-    vendo_pre_turn()
-    assert messaging_status.get_status()["stale_in_gateway"] == []
+        connections_route.handle_connections(h)
+        assert messaging_status.get_status()["stale_in_gateway"] == []
 
-    vendo_pre_turn()
-    assert messaging_status.get_status()["stale_in_gateway"] == ["telegram"]
+        connections_route.handle_connections(h)
+        assert messaging_status.get_status()["stale_in_gateway"] == ["telegram"]

@@ -2,10 +2,9 @@
 
 The hermes gateway (a sibling process — `hermes gateway run`) reads
 TELEGRAM_BOT_TOKEN / SLACK_BOT_TOKEN / etc. from its environment **once at
-startup**. When a user connects Telegram or Slack via Vendo *after* the
-gateway is already running, ``api.vendo_env.hydrate()`` will set the env var
-in the WebUI process — but the gateway's own environment is unchanged, so
-no messages flow until the gateway is restarted.
+startup**. The Vendo SDK reconciler updates the deployment's ``.env`` when
+a user connects a new integration, but the gateway's own running process
+won't pick up that change until it restarts.
 
 This module records messaging-category slugs that transitioned to
 ``status='connected'`` after the WebUI process started. Those are the slugs
@@ -22,9 +21,8 @@ import time
 from typing import Iterable
 
 # Messaging-category slugs hermes-agent gateway adapters care about.
-# Kept in sync with hermes-agent gateway/platforms/* and hermes-webui's
-# vendo_catalog. Treat anything in this set as "needs gateway restart"
-# when freshly connected.
+# Kept in sync with hermes-agent gateway/platforms/*. Treat anything in
+# this set as "needs gateway restart" when freshly connected.
 MESSAGING_SLUGS: frozenset[str] = frozenset({
     "telegram",
     "slack",
@@ -52,10 +50,11 @@ _STALE_IN_GATEWAY: set[str] = set()
 def record_poll(connections: Iterable) -> None:
     """Update transition state from the latest connection list.
 
-    Called from ``api.streaming_vendo_hook.vendo_pre_turn`` once per turn,
-    after the SDK refresh. The first call seeds ``_CONNECTED_AT_BOOT`` with
-    whatever's currently connected; subsequent calls diff against the prior
-    snapshot and add any newly-connected messaging slugs to the stale set.
+    Called from ``api.connections.handle_connections`` once per
+    ``GET /api/connections`` request. The first call seeds
+    ``_CONNECTED_AT_BOOT`` with whatever's currently connected; subsequent
+    calls diff against the prior snapshot and add any newly-connected
+    messaging slugs to the stale set.
 
     Idempotent and side-effect-free beyond updating module state.
     """

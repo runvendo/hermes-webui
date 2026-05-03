@@ -21,7 +21,6 @@ from api.config import (
     invalidate_models_cache,
     reload_config,
 )
-from api import vendo_catalog as _vendo_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +246,26 @@ def _managed_slugs_now() -> frozenset:
         return frozenset()
 
 
+def _vendo_ai_connections() -> dict[str, str | None]:
+    """Indirection for tests — returns ``{slug: base_url}`` for AI-category
+    connections visible to this deployment (connected or available).
+
+    Sourced from ``vendo.connections.list()`` — that single SDK call returns
+    every AI provider Vendo offers, with ``base_url`` set to the proxy URL
+    when present. Returns ``{}`` on any SDK failure (the caller treats this
+    as "no Vendo AI providers visible" and skips the synthesis branch).
+    """
+    try:
+        import vendo as _vendo
+        return {
+            c.slug: c.base_url
+            for c in _vendo.connections.list()
+            if getattr(c, "category", None) == "ai"
+        }
+    except Exception:
+        return {}
+
+
 # SECTION: Public API
 
 
@@ -409,13 +428,12 @@ def get_providers() -> dict[str, Any]:
                 "models": cp_models,
             })
 
-    # Vendo synthesis: ensure all 3 AI slugs are present, with managed_by reflecting
-    # bind state. For connected AI slugs, override has_key/base_url so the UI shows
-    # "Connected via Vendo" instead of "Not configured".
-    _vendo_ai_index = {p["id"]: p for p in providers if p["id"] in _vendo_catalog.AI_SLUGS}
-    for ai_slug in _vendo_catalog.AI_SLUGS:
-        meta = _vendo_catalog.lookup(ai_slug) or {}
-        proxy_url = meta.get("proxy_url")
+    # Vendo synthesis: ensure each Vendo AI slug is present, with managed_by
+    # reflecting bind state. For connected AI slugs, override has_key/base_url
+    # so the UI shows "Connected via Vendo" instead of "Not configured".
+    _ai_proxy_urls = _vendo_ai_connections()
+    _vendo_ai_index = {p["id"]: p for p in providers if p["id"] in _ai_proxy_urls}
+    for ai_slug, proxy_url in _ai_proxy_urls.items():
         is_connected = ai_slug in _managed_slugs
         if ai_slug in _vendo_ai_index:
             entry = _vendo_ai_index[ai_slug]
