@@ -4,4 +4,4 @@
 pyyaml>=6.0
 
 # Vendo SDK — bumping requires a deliberate commit.
-vendo-sdk @ git+https://github.com/runvendo/vendo-sdk-py@v0.3.0
+vendo-sdk @ git+https://github.com/runvendo/vendo-sdk-py@v0.8.0
