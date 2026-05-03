@@ -1342,7 +1342,12 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
 
     # ── Vendo prompt block (one-shot SDK read) ──
     # Env vars are populated globally by the Vendo SDK reconciler running outside
-    # this image; we only read the connection list to surface it in the prompt.
+    # this image; we surface each active connection along with credential-routing
+    # hints so the agent knows how to reach the credential at point of use:
+    #   - env_bootstrap.vars[*].name → the canonical env var(s) the reconciler writes.
+    #   - profile == "user_oauth"/"oauth_app_install" → tokens refresh; the agent
+    #     must call vendo.session(slug)/vendo.token(slug) instead of reading env.
+    #   - docs_url (when present) → integration-specific docs.
     # Fail-soft: any SDK error yields an empty block.
     _vendo_prompt_block = ""
     try:
@@ -1351,10 +1356,26 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
         _connected = [c for c in _conns if getattr(c, "status", "") == "connected"]
         if _connected:
             _lines = ["## Vendo connections (live)", ""]
-            _lines.extend(f"- {c.slug} ({c.status})" for c in _connected)
+            for c in _connected:
+                _eb = getattr(c, "env_bootstrap", None)
+                _env_names = [v.name for v in (_eb.vars if _eb else ())]
+                _profile = getattr(c, "profile", "") or ""
+                _is_refreshing = _profile in ("user_oauth", "oauth_app_install")
+
+                if _is_refreshing:
+                    # OAuth tokens rotate; reading env once is unsafe.
+                    _hint = f'call vendo.session("{c.slug}") for HTTP (OAuth tokens refresh)'
+                elif _env_names:
+                    _hint = f"env: {', '.join(_env_names)}"
+                else:
+                    _hint = "use Vendo SDK"
+
+                _docs = getattr(c, "docs_url", None)
+                _suffix = f" — docs: {_docs}" if _docs else ""
+                _lines.append(f"- {c.slug} ({c.status}) — {_hint}{_suffix}")
             _vendo_prompt_block = "\n".join(_lines)
     except Exception:
-        logger.debug("vendo_sdk unavailable; skipping connection prompt block", exc_info=True)
+        logger.debug("vendo SDK unavailable; skipping connection prompt block", exc_info=True)
 
     # ── MCP Server Discovery (lazy import, idempotent) ──
     # discover_mcp_tools() is called here (rather than at server startup) so that
