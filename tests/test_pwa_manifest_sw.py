@@ -116,6 +116,22 @@ class TestServiceWorker:
             "SW fetch handler must early-return for /api/* paths (no caching)"
         )
 
+    def test_sw_bypasses_vendo_identity_surface(self):
+        """The Vendo bootstrap, sidebar chip, and SDK read fresh SSO meta tags
+        and live billing balance on every load. Caching them stale leaves the
+        sidebar chip unable to re-render after a deploy and forces users to
+        unregister the service worker by hand."""
+        src = SW.read_text(encoding="utf-8")
+        assert "/static/js/vendo-bootstrap.js" in src, (
+            "SW must bypass vendo-bootstrap.js so updated SSO bootstrap reaches the page"
+        )
+        assert "/static/js/vendo-chip.js" in src, (
+            "SW must bypass vendo-chip.js so updated chip render logic reaches the page"
+        )
+        assert "/static/vendor/vendodev-sdk/" in src, (
+            "SW must bypass the vendodev-sdk vendor bundle so SDK upgrades take effect"
+        )
+
 
 class TestPWARoutes:
     def test_manifest_route_serves_correct_content_type(self):

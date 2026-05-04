@@ -103,6 +103,17 @@ self.addEventListener('fetch', (event) => {
     return; // let browser handle normally
   }
 
+  // Vendo identity surface — bootstrap, chip, and SDK. These read fresh
+  // SSO meta tags on every load and pull live billing balance, so caching
+  // them stale leaves the sidebar chip unable to re-render after a deploy.
+  if (
+    url.pathname === '/static/js/vendo-bootstrap.js' ||
+    url.pathname === '/static/js/vendo-chip.js' ||
+    url.pathname.startsWith('/static/vendor/vendodev-sdk/')
+  ) {
+    return; // let browser handle normally
+  }
+
   // Shell assets: cache-first
   event.respondWith(
     caches.match(event.request).then((cached) => {
