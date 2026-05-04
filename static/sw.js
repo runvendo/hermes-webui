@@ -64,6 +64,19 @@ self.addEventListener('fetch', (event) => {
   // Never intercept cross-origin requests
   if (url.origin !== self.location.origin) return;
 
+  // /admin/* and /dashboard-plugins/* belong to hermes-agent (the Vendo
+  // deployment dashboard), not hermes-webui. The composed image serves both
+  // apps from the same origin, so this SW's scope ends up covering them
+  // even though webui does not own those paths. Caching them poisons the
+  // dashboard SPA's session-token bootstrap on every backend restart.
+  if (
+    url.pathname === '/admin' ||
+    url.pathname.startsWith('/admin/') ||
+    url.pathname.startsWith('/dashboard-plugins/')
+  ) {
+    return; // let browser handle normally
+  }
+
   // API and streaming endpoints — always go to network
   if (
     url.pathname.startsWith('/api/') ||
