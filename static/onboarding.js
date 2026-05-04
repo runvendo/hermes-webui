@@ -505,11 +505,16 @@ function _teardownVendoSetupSubscription(){
 // Build a <vendo-connection-card> from an Integration record. The card fetches
 // its own connection state and subscribes to live updates via the SDK's SSE
 // stream — see VendoConnectionCard in @vendodev/sdk.
+//
+// connect-origin is pinned to the Vendo dashboard so the popup target stays at
+// vendo.run/connections/connect/<slug> even when base-url is a same-origin
+// proxy path (e.g. /api/vendo/proxy) used to satisfy CSP for API calls.
 function _buildVendoSdkCard(it, baseUrl){
   const card=document.createElement('vendo-connection-card');
   card.setAttribute('slug', it.slug);
   if(it.name) card.setAttribute('name', it.name);
   if(baseUrl) card.setAttribute('base-url', baseUrl);
+  card.setAttribute('connect-origin', 'https://vendo.run');
   if(it.logoUrl) card.setAttribute('logo-url', it.logoUrl);
   if(it.brandColor) card.setAttribute('brand-color', it.brandColor);
   return card;
