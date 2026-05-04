@@ -502,8 +502,42 @@ function _teardownVendoSetupSubscription(){
   }
 }
 
+// Build a <vendo-connection-card> from an Integration record. The card fetches
+// its own connection state and subscribes to live updates via the SDK's SSE
+// stream — see VendoConnectionCard in @vendodev/sdk.
+function _buildVendoSdkCard(it, baseUrl){
+  const card=document.createElement('vendo-connection-card');
+  card.setAttribute('slug', it.slug);
+  if(it.name) card.setAttribute('name', it.name);
+  if(baseUrl) card.setAttribute('base-url', baseUrl);
+  if(it.logoUrl) card.setAttribute('logo-url', it.logoUrl);
+  if(it.brandColor) card.setAttribute('brand-color', it.brandColor);
+  return card;
+}
+
+// Refresh the cached connected-slugs after a card emits connect/disconnect, so
+// nextOnboardingStep's "at least one AI provider connected" gate unlocks.
+async function _refreshVendoConnectedSlugs(){
+  if(!window.Vendo) return;
+  try{
+    const conns=await window.Vendo.connections.list();
+    const slugs=(conns||[]).filter(c=>c.status==='connected').map(c=>c.slug);
+    ONBOARDING.status=ONBOARDING.status||{};
+    ONBOARDING.status.vendo=ONBOARDING.status.vendo||{};
+    ONBOARDING.status.vendo.connections=ONBOARDING.status.vendo.connections||{};
+    ONBOARDING.status.vendo.connections.connected_slugs=slugs;
+    document.dispatchEvent(new CustomEvent('vendo:connection-changed'));
+  }catch(e){
+    console.warn('[onboarding] connection refresh failed', e);
+  }
+}
+
 /**
- * Render a filtered Vendo cards pane via SDK.
+ * Render a filtered Vendo cards pane via SDK web components.
+ *
+ * Uses Vendo.integrations.list() for the catalog (Vendo.connections.list()
+ * returns only currently-bound connections, which is empty pre-onboarding).
+ * Each <vendo-connection-card> manages its own connect/manage/SSE lifecycle.
  */
 async function _renderVendoCardsPane(body, opts){
   _teardownVendoSetupSubscription();
@@ -517,21 +551,23 @@ async function _renderVendoCardsPane(body, opts){
   body.innerHTML='<div id="onboardingVendoSetup" class="onboarding-vendo-setup"></div>';
   const container=$('onboardingVendoSetup');
 
-  let connections;
-  try { connections = await window.Vendo.connections.list(); }
+  let integrations;
+  try { integrations = await window.Vendo.integrations.list(); }
   catch(e){
     container.innerHTML='<div class="onboarding-status warn">Couldn\'t reach Vendo: '+esc(String(e))+'</div>';
     return;
   }
 
-  const filtered=(connections||[]).filter(opts.filter);
+  const baseUrl=window.Vendo.baseUrl||'';
+  const filtered=(integrations||[]).filter(i=>i.enabled).filter(opts.filter);
   if(filtered.length){
     const section=document.createElement('div');
     section.className='onboarding-conn-section';
     section.innerHTML=`<div class="onboarding-conn-header">${esc(opts.header)}</div>`;
-    for(const c of filtered){
-      if(typeof _buildIntegrationCard==='function') section.appendChild(_buildIntegrationCard(c));
-    }
+    const grid=document.createElement('div');
+    grid.className='vendo-panel-grid';
+    for(const it of filtered) grid.appendChild(_buildVendoSdkCard(it, baseUrl));
+    section.appendChild(grid);
     container.appendChild(section);
   } else {
     const empty=document.createElement('div');
@@ -542,12 +578,15 @@ async function _renderVendoCardsPane(body, opts){
     container.appendChild(empty);
   }
 
-    if(opts.byok){
-      const byok=document.createElement('details');
-      byok.className='onboarding-byok';
-      byok.innerHTML='<summary>Use your own API keys (advanced)</summary><p class="onboarding-copy">Hermes also supports your own provider keys. After onboarding, open Settings → Providers to add them — Vendo-managed keys will still take priority.</p>';
-      container.appendChild(byok);
-    }
+  if(opts.byok){
+    const byok=document.createElement('details');
+    byok.className='onboarding-byok';
+    byok.innerHTML='<summary>Use your own API keys (advanced)</summary><p class="onboarding-copy">Hermes also supports your own provider keys. After onboarding, open Settings → Providers to add them — Vendo-managed keys will still take priority.</p>';
+    container.appendChild(byok);
+  }
+
+  container.addEventListener('vendo-connected', _refreshVendoConnectedSlugs);
+  container.addEventListener('vendo-disconnected', _refreshVendoConnectedSlugs);
 }
 
 function _renderVendoProvidersPane(body){
@@ -582,36 +621,31 @@ async function _renderVendoSetupPane(body){
   body.innerHTML='<div id="onboardingVendoSetup" class="onboarding-vendo-setup"></div>';
   const container=$('onboardingVendoSetup');
 
-  let connections;
-  try { connections = await window.Vendo.connections.list(); }
+  let integrations;
+  try { integrations = await window.Vendo.integrations.list(); }
   catch(e){
     container.innerHTML='<div class="onboarding-status warn">Couldn\'t reach Vendo: '+esc(String(e))+'</div>';
     return;
   }
 
-  const all=connections||[];
+  const baseUrl=window.Vendo.baseUrl||'';
+  const all=(integrations||[]).filter(i=>i.enabled);
   const ai=all.filter(c=>c.category==='ai');
   const nonAi=all.filter(c=>c.category!=='ai');
 
-  if(ai.length){
-    const aiSection=document.createElement('div');
-    aiSection.className='onboarding-conn-section';
-    aiSection.innerHTML='<div class="onboarding-conn-header">AI providers (Vendo-managed)</div>';
-    for(const c of ai){
-      if(typeof _buildIntegrationCard==='function') aiSection.appendChild(_buildIntegrationCard(c));
-    }
-    container.appendChild(aiSection);
-  }
+  const buildSection=(items, header)=>{
+    const section=document.createElement('div');
+    section.className='onboarding-conn-section';
+    section.innerHTML=`<div class="onboarding-conn-header">${esc(header)}</div>`;
+    const grid=document.createElement('div');
+    grid.className='vendo-panel-grid';
+    for(const it of items) grid.appendChild(_buildVendoSdkCard(it, baseUrl));
+    section.appendChild(grid);
+    return section;
+  };
 
-  if(nonAi.length){
-    const intSection=document.createElement('div');
-    intSection.className='onboarding-conn-section';
-    intSection.innerHTML='<div class="onboarding-conn-header">Integrations</div>';
-    for(const c of nonAi){
-      if(typeof _buildIntegrationCard==='function') intSection.appendChild(_buildIntegrationCard(c));
-    }
-    container.appendChild(intSection);
-  }
+  if(ai.length) container.appendChild(buildSection(ai, 'AI providers (Vendo-managed)'));
+  if(nonAi.length) container.appendChild(buildSection(nonAi, 'Integrations'));
 
   if(!all.length){
     const empty=document.createElement('div');
@@ -626,6 +660,9 @@ async function _renderVendoSetupPane(body){
   byok.className='onboarding-byok';
   byok.innerHTML='<summary>Use your own API keys (advanced)</summary><p class="onboarding-copy">Hermes also supports your own provider keys. After onboarding, open Settings → Providers to add them — Vendo-managed keys will still take priority.</p>';
   container.appendChild(byok);
+
+  container.addEventListener('vendo-connected', _refreshVendoConnectedSlugs);
+  container.addEventListener('vendo-disconnected', _refreshVendoConnectedSlugs);
 }
 
 function _applyVendoWelcomeOverride(status){
