@@ -1435,6 +1435,8 @@ def _run_agent_streaming(session_id, msg_text, model, workspace, stream_id, atta
             _profile_home = os.environ.get('HERMES_HOME', '')
             _profile_runtime_env = {}
 
+        for _dup_key in ('TERMINAL_CWD', 'HERMES_EXEC_ASK', 'HERMES_SESSION_KEY', 'HERMES_HOME'):
+            _profile_runtime_env.pop(_dup_key, None)
         _set_thread_env(
             **_profile_runtime_env,
             TERMINAL_CWD=str(s.workspace),
