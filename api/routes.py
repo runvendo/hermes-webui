@@ -1506,7 +1506,7 @@ def _render_vendo_meta(handler) -> str:
     api_key = os.environ.get("VENDO_API_KEY", "").strip()
     if not api_key:
         return ""
-    base_url = os.environ.get("VENDO_API_BASE_URL", "https://vendo.run").strip()
+    base_url = os.environ.get("VENDO_API_BASE_URL", "/api/vendo/proxy").strip()
     parts = [
         f'<meta name="vendo-api-key" content="{_h.escape(api_key, quote=True)}">',
         f'<meta name="vendo-base-url" content="{_h.escape(base_url, quote=True)}">',

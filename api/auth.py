@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # ── Public paths (no auth required) ─────────────────────────────────────────
 PUBLIC_PATHS = frozenset({
-    '/login', '/health', '/favicon.ico',
+    '/login', '/health', '/favicon.ico', '/sw.js',
     '/api/auth/login', '/api/auth/status',
     '/manifest.json', '/manifest.webmanifest',
 })
@@ -215,6 +215,11 @@ def check_auth(handler, parsed) -> bool:
     """Check if request is authorized. Returns True if OK.
     If not authorized, sends 401 (API) or 302 redirect (page) and returns False.
     """
+    # Public paths don't require auth (must be checked before SSO so that
+    # static assets forwarded without X-Vendo-* headers aren't rejected).
+    if parsed.path in PUBLIC_PATHS or parsed.path.startswith('/static/') or parsed.path.startswith('/session/static/'):
+        return True
+
     # SSO short-circuit: when running behind Vendo's proxy with vendoAuth on,
     # trust the verified X-Vendo-* headers it injects. Spec:
     # docs/superpowers/specs/2026-04-28-hermes-vendo-sso-design.md
@@ -231,9 +236,6 @@ def check_auth(handler, parsed) -> bool:
         return False
 
     if not is_auth_enabled():
-        return True
-    # Public paths don't require auth
-    if parsed.path in PUBLIC_PATHS or parsed.path.startswith('/static/') or parsed.path.startswith('/session/static/'):
         return True
     # Check session cookie
     cookie_val = parse_cookie(handler)
