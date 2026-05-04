@@ -544,9 +544,19 @@ function renderModelDropdown(){
   // Kick off (or reuse) provider/connection metadata fetch. The first render
   // before the fetch lands still works — sections will render with letter
   // fallback logos and re-render once metadata arrives.
-  _ensureModelPickerMetadata().then(()=>{
-    if(dd.classList.contains('open')) renderModelDropdown();
-  }).catch(()=>{});
+  //
+  // Only schedule a re-render when metadata is NOT yet cached. Once it lands,
+  // subsequent renderModelDropdown() calls already have the data and must NOT
+  // re-arm a `.then(renderModelDropdown)` — that schedules another microtask
+  // that re-enters this function, which schedules another, … producing an
+  // infinite microtask loop that locks the page (user clicks the picker chip,
+  // tab freezes). Fetch returning instantly on the cache-hit path turns this
+  // into a busy-loop with no IO between iterations.
+  if(!_modelPickerProvByID || !_modelPickerConnBySlug){
+    _ensureModelPickerMetadata().then(()=>{
+      if(dd.classList.contains('open')) renderModelDropdown();
+    }).catch(()=>{});
+  }
 
   const {providerOrder, byProvider, orphans}=_collectModelDataByProvider(sel);
   const provMeta=_modelPickerProvByID||new Map();
