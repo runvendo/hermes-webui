@@ -9,7 +9,15 @@ function readMeta(name) {
 const apiKey = readMeta("vendo-api-key");
 if (apiKey) {
   const baseUrl = readMeta("vendo-base-url") || "https://vendo.run";
-  window.Vendo = new Vendo({ apiKey, baseUrl });
+  // Bind fetch to globalThis: the SDK stores the function reference and later
+  // calls `this.fetch(...)` from instance scope, so an unbound builtin throws
+  // "Failed to execute 'fetch' on 'Window': Illegal invocation". Pre-binding
+  // here works around @vendodev/sdk@0.2.0 not binding internally.
+  window.Vendo = new Vendo({
+    apiKey,
+    baseUrl,
+    fetch: globalThis.fetch.bind(globalThis),
+  });
   window.VendoIdentity = {
     userId: readMeta("vendo-user-id") || null,
     email: readMeta("vendo-user-email") || null,
