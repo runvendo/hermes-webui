@@ -195,6 +195,13 @@ async function _renderVendoPanelSdk() {
   // fetch goes same-origin via /api/vendo/proxy when configured (CSP `connect-src 'self'`
   // blocks the card's default vendo.run target otherwise).
   const cardBaseUrl = window.Vendo.baseUrl || '';
+  // The connect popup target is always the Vendo dashboard, NOT the API base —
+  // the API base may be a same-origin proxy path (e.g. /api/vendo/proxy) which
+  // doesn't serve /connections/connect/<slug> HTML, so the popup would 404 (or
+  // appear not to open at all). The SDK's _connectOrigin() falls back to
+  // base-url when connect-origin isn't set; setting connect-origin explicitly
+  // decouples the API path from the dashboard URL.
+  const VENDO_DASHBOARD_ORIGIN = 'https://vendo.run';
 
   const ai = integrations.filter(i => i.enabled && i.category === 'ai');
   const other = integrations.filter(i => i.enabled && i.category !== 'ai');
@@ -206,6 +213,7 @@ async function _renderVendoPanelSdk() {
       const card = document.createElement('vendo-connection-card');
       card.setAttribute('slug', it.slug);
       if (cardBaseUrl) card.setAttribute('base-url', cardBaseUrl);
+      card.setAttribute('connect-origin', VENDO_DASHBOARD_ORIGIN);
       // Seed branding upfront — the card's own /connections fetch is deployment-scoped
       // and may not include this slug until the user connects, so attributes drive
       // the initial render.
@@ -222,6 +230,7 @@ async function _renderVendoPanelSdk() {
       const card = document.createElement('vendo-connection-card');
       card.setAttribute('slug', it.slug);
       if (cardBaseUrl) card.setAttribute('base-url', cardBaseUrl);
+      card.setAttribute('connect-origin', VENDO_DASHBOARD_ORIGIN);
       if (it.logoUrl) card.setAttribute('logo-url', it.logoUrl);
       if (it.brandColor) card.setAttribute('brand-color', it.brandColor);
       intEl.appendChild(card);
