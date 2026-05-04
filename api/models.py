@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import uuid
+from contextlib import closing
 from pathlib import Path
 
 import api.config as _cfg
@@ -15,7 +16,7 @@ from api.config import (
     get_effective_default_model, _get_session_agent_lock,
 )
 from api.workspace import get_last_workspace
-from api.agent_sessions import read_importable_agent_session_rows
+from api.agent_sessions import read_importable_agent_session_rows, read_session_lineage_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +307,7 @@ def _lookup_index_message_count(session_id):
 class Session:
     def __init__(self, session_id: str=None, title: str='Untitled',
                  workspace=str(DEFAULT_WORKSPACE), model=DEFAULT_MODEL,
+                 model_provider=None,
                  messages=None, created_at=None, updated_at=None,
                  tool_calls=None, pinned: bool=False, archived: bool=False,
                  project_id: str=None, profile=None,
@@ -318,11 +320,16 @@ class Session:
                  context_messages=None,
                  compression_anchor_visible_idx=None,
                  compression_anchor_message_key=None,
-                 **kwargs):
+                 context_length=None, threshold_tokens=None,
+                 last_prompt_tokens=None,
+                parent_session_id: str=None,
+                enabled_toolsets=None,
+                **kwargs):
         self.session_id = session_id or uuid.uuid4().hex[:12]
         self.title = title
         self.workspace = str(Path(workspace).expanduser().resolve())
         self.model = model
+        self.model_provider = str(model_provider).strip().lower() if model_provider else None
         self.messages = messages or []
         self.tool_calls = tool_calls or []
         self.created_at = created_at or time.time()
@@ -342,6 +349,16 @@ class Session:
         self.context_messages = context_messages if isinstance(context_messages, list) else []
         self.compression_anchor_visible_idx = compression_anchor_visible_idx
         self.compression_anchor_message_key = compression_anchor_message_key
+        self.context_length = context_length
+        self.threshold_tokens = threshold_tokens
+        self.last_prompt_tokens = last_prompt_tokens
+        self.parent_session_id = parent_session_id
+        self.is_cli_session = bool(kwargs.get('is_cli_session', False))
+        self.source_tag = kwargs.get('source_tag')
+        self.raw_source = kwargs.get('raw_source')
+        self.session_source = kwargs.get('session_source')
+        self.source_label = kwargs.get('source_label')
+        self.enabled_toolsets = enabled_toolsets  # List[str] or None — per-session toolset override
         self._metadata_message_count = None
 
     @property
@@ -349,18 +366,39 @@ class Session:
         return SESSION_DIR / f'{self.session_id}.json'
 
     def save(self, touch_updated_at: bool = True, skip_index: bool = False) -> None:
+        # ── #1558 P0 guard ──────────────────────────────────────────────
+        # Refuse to save a session that was loaded with metadata_only=True.
+        # Such sessions have messages=[] (it's the whole point of the partial
+        # load), and save() unconditionally writes self.messages to disk via
+        # an atomic os.replace(). Saving a metadata-only stub thus wipes the
+        # full conversation history — which is exactly the v0.50.279
+        # _clear_stale_stream_state() regression that lost users 1000+
+        # message conversations. Any caller that needs to mutate persisted
+        # fields on a metadata-only session must reload with
+        # metadata_only=False first.
+        if getattr(self, '_loaded_metadata_only', False):
+            raise RuntimeError(
+                f"Refusing to save metadata-only session {self.session_id!r}: "
+                f"would atomically overwrite on-disk messages with []. "
+                f"Reload with metadata_only=False before mutating state. "
+                f"See #1558."
+            )
         if touch_updated_at:
             self.updated_at = time.time()
         # Write metadata fields first so load_metadata_only() can read them
         # without parsing the full messages array (which may be 400KB+).
         # Fields are listed in the order they should appear in the JSON file.
         METADATA_FIELDS = [
-            'session_id', 'title', 'workspace', 'model', 'created_at', 'updated_at',
+            'session_id', 'title', 'workspace', 'model', 'model_provider', 'created_at', 'updated_at',
             'pinned', 'archived', 'project_id', 'profile',
             'input_tokens', 'output_tokens', 'estimated_cost',
             'personality', 'active_stream_id',
             'pending_user_message', 'pending_attachments', 'pending_started_at',
             'compression_anchor_visible_idx', 'compression_anchor_message_key',
+            'context_length', 'threshold_tokens', 'last_prompt_tokens',
+            'parent_session_id',
+            'is_cli_session', 'source_tag', 'raw_source', 'session_source', 'source_label',
+            'enabled_toolsets',
         ]
         meta = {k: getattr(self, k, None) for k in METADATA_FIELDS}
         meta['messages'] = self.messages
@@ -370,6 +408,56 @@ class Session:
                  if k not in METADATA_FIELDS and k not in ('messages', 'tool_calls')
                  and not k.startswith('_')}
         payload = json.dumps({**meta, **extra}, ensure_ascii=False, indent=2)
+
+        # ── #1558 backup safeguard ──────────────────────────────────────
+        # Before overwriting the session file, copy the previous version to
+        # ``<sid>.json.bak`` IFF the previous file has more messages than the
+        # incoming payload. The asymmetric guard means:
+        #   * Normal grow-the-conversation saves never produce a backup
+        #     (incoming messages >= existing) — keeps disk overhead near zero.
+        #   * Any save that would shrink the messages array (the failure mode
+        #     of #1558, plus anything similar in the future) leaves a recoverable
+        #     snapshot of the pre-shrink state on disk.
+        # The recovery path is api/session_recovery.py — at server startup and
+        # via /api/session/recover, sessions whose JSON has fewer messages than
+        # their .bak get restored automatically.
+        try:
+            if self.path.exists():
+                existing_text = self.path.read_text(encoding='utf-8')
+                try:
+                    existing = json.loads(existing_text)
+                    existing_msg_count = len(existing.get('messages') or [])
+                except (json.JSONDecodeError, ValueError):
+                    existing_msg_count = -1  # corrupt → always back up
+                incoming_msg_count = len(self.messages or [])
+                if existing_msg_count > incoming_msg_count:
+                    bak_path = self.path.with_suffix('.json.bak')
+                    # SHOULD-FIX #2 (Opus): atomic write via tmp+replace,
+                    # mirroring the main save() pattern below. Prevents a
+                    # torn .bak from a crash mid-write or a concurrent
+                    # backup-producing save. Recovery defends against a
+                    # torn .bak (JSONDecodeError → no_action), so the
+                    # failure mode pre-fix was "backup is lost"; with
+                    # this fix the backup either lands cleanly or doesn't
+                    # land at all.
+                    try:
+                        bak_tmp = bak_path.with_suffix(
+                            f'.bak.tmp.{os.getpid()}.{threading.current_thread().ident}'
+                        )
+                        with open(bak_tmp, 'w', encoding='utf-8') as bf:
+                            bf.write(existing_text)
+                            bf.flush()
+                            os.fsync(bf.fileno())
+                        os.replace(bak_tmp, bak_path)
+                    except OSError:
+                        # Backup is best-effort; main save proceeds regardless.
+                        try:
+                            bak_tmp.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+        except OSError:
+            pass
+
         tmp = self.path.with_suffix(f'.tmp.{os.getpid()}.{threading.current_thread().ident}')
         try:
             with open(tmp, 'w', encoding='utf-8') as f:
@@ -422,6 +510,13 @@ class Session:
             parsed['tool_calls'] = []
             session = cls(**parsed)
             session._metadata_message_count = _lookup_index_message_count(sid)
+            # Mark this session as a metadata-only stub. save() refuses to write
+            # such a session because doing so would atomically replace the
+            # on-disk JSON with messages=[], wiping the conversation. Any
+            # caller that needs to mutate persisted state on a metadata-only
+            # session must reload it with metadata_only=False first.
+            # See #1558 — v0.50.279 _clear_stale_stream_state() data-loss bug.
+            session._loaded_metadata_only = True
             return session
         except Exception:
             # Corrupt prefix or decode error — fall back to full load
@@ -434,6 +529,7 @@ class Session:
             'title': self.title,
             'workspace': self.workspace,
             'model': self.model,
+            'model_provider': self.model_provider,
             'message_count': (
                 self._metadata_message_count
                 if self._metadata_message_count is not None
@@ -452,7 +548,20 @@ class Session:
             'personality': self.personality,
             'compression_anchor_visible_idx': self.compression_anchor_visible_idx,
             'compression_anchor_message_key': self.compression_anchor_message_key,
+            'context_length': self.context_length,
+            'threshold_tokens': self.threshold_tokens,
+            'last_prompt_tokens': self.last_prompt_tokens,
+            # Only emit 'parent_session_id' when set (the /branch fork link, #1342).
+            # Sessions without a fork must not leak None — see test_session_lineage_metadata_api.
+            **({'parent_session_id': self.parent_session_id} if self.parent_session_id else {}),
             'active_stream_id': self.active_stream_id,
+            'pending_user_message': self.pending_user_message,
+            'is_cli_session': self.is_cli_session,
+            'source_tag': self.source_tag,
+            'raw_source': self.raw_source,
+            'session_source': self.session_source,
+            'source_label': self.source_label,
+            'enabled_toolsets': self.enabled_toolsets,
             'is_streaming': _is_streaming_session(
                 self.active_stream_id, active_stream_ids
             ) if include_runtime else False,
@@ -507,11 +616,23 @@ def _apply_core_sync_or_error_marker(
         if require_stream_dead and session.active_stream_id in _active_stream_ids():
             return False
 
-    # When messages is already non-empty the core-sync overwrite and recovered
-    # user turn are skipped (we cannot clobber in-memory mutations), but the
-    # stuck pending fields MUST still be cleared and an error marker appended
-    # so the session isn't permanently left in stale-pending state.
+    # When messages is already non-empty, do not overwrite history from any core
+    # transcript. The pending user turn may still be the only durable copy of a
+    # prompt submitted just before a server restart, so materialize it before
+    # clearing runtime stream state.
     if len(session.messages) != 0:
+        _recovered_ts = int(time.time())
+        if isinstance(session.pending_started_at, (int, float)) and session.pending_started_at > 0:
+            _recovered_ts = int(session.pending_started_at)
+        recovered = {
+            'role': 'user',
+            'content': session.pending_user_message,
+            'timestamp': _recovered_ts,
+            '_recovered': True,
+        }
+        if session.pending_attachments:
+            recovered['attachments'] = list(session.pending_attachments)
+        session.messages.append(recovered)
         session.active_stream_id = None
         session.pending_user_message = None
         session.pending_attachments = []
@@ -524,7 +645,7 @@ def _apply_core_sync_or_error_marker(
         })
         session.save()
         logger.info(
-            "Session %s: pending cleared (messages non-empty), added error marker",
+            "Session %s: recovered pending user turn (messages non-empty), added error marker",
             sid,
         )
         return True
@@ -601,8 +722,7 @@ def _repair_stale_pending(session) -> bool:
     # _apply_core_sync_or_error_marker uses this to detect a rotated active_stream_id
     # (e.g. context compression) or a stream that came back alive.
     _seen_stream_id = session.active_stream_id
-    if (len(session.messages) != 0
-            or not session.pending_user_message
+    if (not session.pending_user_message
             or not _seen_stream_id
             or _seen_stream_id in _active_stream_ids()):
         return False
@@ -678,7 +798,7 @@ def get_session(sid, metadata_only=False):
         return s
     raise KeyError(sid)
 
-def new_session(workspace=None, model=None, profile=None):
+def new_session(workspace=None, model=None, profile=None, model_provider=None, project_id=None):
     """Create a new in-memory session.
 
     The session lives in the SESSIONS dict only — no disk write happens until
@@ -712,7 +832,9 @@ def new_session(workspace=None, model=None, profile=None):
     s = Session(
         workspace=workspace or get_last_workspace(),
         model=effective_model,
+        model_provider=model_provider,
         profile=profile,
+        project_id=project_id,
     )
     with LOCK:
         SESSIONS[s.session_id] = s
@@ -726,6 +848,31 @@ def _hide_from_default_sidebar(session: dict) -> bool:
     sid = str(session.get('session_id') or '')
     source = session.get('source_tag') or session.get('source')
     return source == 'cron' or sid.startswith('cron_')
+
+
+def _active_state_db_path() -> Path:
+    """Return state.db for the active Hermes profile, degrading to HERMES_HOME."""
+    try:
+        from api.profiles import get_active_hermes_home
+        hermes_home = Path(get_active_hermes_home()).expanduser().resolve()
+    except Exception:
+        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.hermes'))).expanduser().resolve()
+    return hermes_home / 'state.db'
+
+
+def _enrich_sidebar_lineage_metadata(sessions: list[dict]) -> None:
+    """Attach state.db compression lineage metadata used by sidebar collapse."""
+    try:
+        metadata = read_session_lineage_metadata(
+            _active_state_db_path(),
+            {s.get('session_id') for s in sessions},
+        )
+    except Exception:
+        return
+    for session in sessions:
+        sid = session.get('session_id')
+        if sid in metadata:
+            session.update(metadata[sid])
 
 
 def all_sessions():
@@ -769,9 +916,16 @@ def all_sessions():
             # No grace window: a 0-message Untitled session is never shown in the list
             # regardless of age. This means page refreshes and accidental New Conversation
             # clicks never leave orphan entries in the sidebar.
+            #
+            # Exception: sessions with active_stream_id set are actively streaming (#1327).
+            # #1184 deferred the first save() until the first message, so during the
+            # initial streaming turn the session still looks like Untitled+0-messages.
+            # Without this exemption, navigating away during a long first turn causes
+            # the session to vanish from the sidebar.
             result = [s for s in result if not (
                 s.get('title', 'Untitled') == 'Untitled'
                 and s.get('message_count', 0) == 0
+                and not s.get('active_stream_id')
             )]
             result = [s for s in result if not _hide_from_default_sidebar(s)]
             # Backfill: sessions created before Sprint 22 have no profile tag.
@@ -779,6 +933,7 @@ def all_sessions():
             for s in result:
                 if not s.get('profile'):
                     s['profile'] = 'default'
+            _enrich_sidebar_lineage_metadata(result)
             return result
         except Exception:
             logger.debug("Failed to load session index, falling back to full scan")
@@ -796,15 +951,18 @@ def all_sessions():
     out.sort(key=lambda s: (getattr(s, 'pinned', False), _session_sort_timestamp(s)), reverse=True)
     # Hide empty Untitled sessions from the UI entirely — kept consistent with the
     # index-path filter above. No grace window: a 0-message Untitled session is
-    # never shown regardless of age (#1171).
+    # never shown regardless of age (#1171).  Same streaming exemption as above (#1327).
     result = [s.compact(include_runtime=True, active_stream_ids=active_stream_ids) for s in out if not (
         s.title == 'Untitled'
         and len(s.messages) == 0
+        and not s.active_stream_id
+        and not s.pending_user_message
     )]
     result = [s for s in result if not _hide_from_default_sidebar(s)]
     for s in result:
         if not s.get('profile'):
             s['profile'] = 'default'
+    _enrich_sidebar_lineage_metadata(result)
     return result
 
 
@@ -835,6 +993,40 @@ def load_projects() -> list:
 def save_projects(projects) -> None:
     """Write project list to disk."""
     PROJECTS_FILE.write_text(json.dumps(projects, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+CRON_PROJECT_NAME = 'Cron Jobs'
+_CRON_PROJECT_LOCK = threading.Lock()
+
+
+def ensure_cron_project() -> str:
+    """Return the project_id of the system "Cron Jobs" project, creating it if needed.
+
+    Thread-safe and idempotent.  Returns a 12-char hex project_id string.
+    """
+    with _CRON_PROJECT_LOCK:
+        for p in load_projects():
+            if p.get('name') == CRON_PROJECT_NAME:
+                return p['project_id']
+        project_id = uuid.uuid4().hex[:12]
+        projects = load_projects()
+        projects.append({
+            'project_id': project_id,
+            'name': CRON_PROJECT_NAME,
+            'color': '#6366f1',
+            'created_at': time.time(),
+        })
+        save_projects(projects)
+        return project_id
+
+
+def is_cron_session(session_id: str, source_tag: str = None) -> bool:
+    """Return True if a session originates from a cron job."""
+    if source_tag == 'cron':
+        return True
+    sid = str(session_id or '')
+    return sid.startswith('cron_')
+
 
 
 def import_cli_session(
@@ -901,6 +1093,15 @@ def get_cli_sessions() -> list:
     except ImportError:
         _cli_profile = None  # older agent -- fall back to no profile
 
+    # Memoize the cron project ID for this scan so we don't pay a lock-acquire +
+    # disk-read of projects.json per cron session in the loop below.
+    # Resolved lazily on the first cron session we encounter.
+    _cron_pid_cache = [None]  # list-as-cell so the closure can mutate
+    def _cron_pid():
+        if _cron_pid_cache[0] is None:
+            _cron_pid_cache[0] = ensure_cron_project()
+        return _cron_pid_cache[0]
+
     try:
         for row in read_importable_agent_session_rows(db_path, limit=200, log=logger, exclude_sources=None):
             sid = row['id']
@@ -928,6 +1129,16 @@ def get_cli_sessions() -> list:
                                     break
                     except Exception:
                         pass  # degrade gracefully
+            # If a WebUI JSON file exists for this session (e.g. previously
+            # imported or renamed in the sidebar), prefer its title over the
+            # state.db title.  This fixes rename-not-persisting for CLI sessions
+            # after compression chain extension (#1486).
+            try:
+                _webui_meta = Session.load_metadata_only(sid)
+                if _webui_meta and getattr(_webui_meta, 'title', None):
+                    _title = _webui_meta.title
+            except Exception:
+                pass
             _display_title = _title or f'{_source.title()} Session'
             cli_sessions.append({
                 'session_id': sid,
@@ -939,9 +1150,28 @@ def get_cli_sessions() -> list:
                 'updated_at': raw_ts,
                 'pinned': False,
                 'archived': False,
-                'project_id': None,
+                'project_id': _cron_pid() if is_cron_session(sid, _source) else None,
                 'profile': profile,
                 'source_tag': _source,
+                'raw_source': row.get('raw_source'),
+                'user_id': row.get('user_id'),
+                'chat_id': row.get('chat_id') or row.get('origin_chat_id'),
+                'chat_type': row.get('chat_type'),
+                'thread_id': row.get('thread_id'),
+                'session_key': row.get('session_key'),
+                'platform': row.get('platform'),
+                'session_source': row.get('session_source'),
+                'source_label': row.get('source_label'),
+                'parent_session_id': row.get('parent_session_id'),
+                'parent_title': row.get('parent_title'),
+                'parent_source': row.get('parent_source'),
+                'relationship_type': row.get('relationship_type'),
+                '_parent_lineage_root_id': row.get('_parent_lineage_root_id'),
+                'end_reason': row.get('end_reason'),
+                'actual_message_count': row.get('actual_message_count'),
+                '_lineage_root_id': row.get('_lineage_root_id'),
+                '_lineage_tip_id': row.get('_lineage_tip_id'),
+                '_compression_segment_count': row.get('_compression_segment_count'),
                 'is_cli_session': True,
             })
     except Exception as _cli_err:
@@ -978,7 +1208,7 @@ def get_cli_session_messages(sid) -> list:
         return []
 
     try:
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute("""
@@ -997,6 +1227,95 @@ def get_cli_session_messages(sid) -> list:
     except Exception:
         return []
     return msgs
+
+
+def count_conversation_rounds(sid: str, since: float | None = None) -> int:
+    """Count conversation rounds for a session from state.db.
+
+    A "round" = one user message + one agent reply.  Consecutive user
+    messages are merged into a single round so that multi-part questions
+    don't inflate the count.
+
+    Parameters
+    ----------
+    sid : str
+        Gateway session ID (e.g. ``20260430_151231_7209a0``).
+    since : float | None
+        Unix timestamp.  If provided, only messages **after** this
+        timestamp are counted.
+
+    Returns
+    -------
+    int
+        Number of complete conversation rounds.
+    """
+    import os, sqlite3, datetime
+
+    try:
+        from api.profiles import get_active_hermes_home
+        hermes_home = Path(get_active_hermes_home()).expanduser().resolve()
+    except Exception:
+        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.hermes'))).expanduser().resolve()
+    db_path = hermes_home / 'state.db'
+    if not db_path.exists():
+        return 0
+
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT role, timestamp FROM messages WHERE session_id = ? ORDER BY timestamp ASC",
+                (sid,),
+            )
+            rows = cur.fetchall()
+    except Exception:
+        return 0
+
+    rounds = 0
+    seen_user = False          # have we seen a user msg in the current round?
+    seen_agent_after_user = False  # have we seen an agent reply after that user msg?
+
+    for row in rows:
+        role = (row['role'] or '').strip().lower()
+        ts_raw = row['timestamp']
+
+        # Parse timestamp and apply the ``since`` filter.
+        if since is not None and ts_raw is not None:
+            try:
+                if isinstance(ts_raw, (int, float)):
+                    ts_val = float(ts_raw)
+                else:
+                    # ISO-8601 string
+                    ts_val = datetime.datetime.fromisoformat(
+                        str(ts_raw).replace('Z', '+00:00')
+                    ).timestamp()
+                if ts_val <= since:
+                    continue
+            except Exception:
+                pass
+
+        if role == 'user':
+            if seen_user and not seen_agent_after_user:
+                # Consecutive user message — merge into current round.
+                pass
+            elif seen_user and seen_agent_after_user:
+                # Previous round completed, starting a new one.
+                rounds += 1
+                seen_agent_after_user = False
+            seen_user = True
+        elif role == 'assistant':
+            if seen_user:
+                seen_agent_after_user = True
+
+    # Close the last round if it was completed.
+    if seen_user and seen_agent_after_user:
+        rounds += 1
+
+    return rounds
+
+
+CONVERSATION_ROUND_THRESHOLD = 10
 
 
 def delete_cli_session(sid) -> bool:
@@ -1019,7 +1338,7 @@ def delete_cli_session(sid) -> bool:
         return False
 
     try:
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM messages WHERE session_id = ?", (sid,))
             cur.execute("DELETE FROM sessions WHERE id = ?", (sid,))
