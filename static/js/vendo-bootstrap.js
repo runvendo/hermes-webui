@@ -12,7 +12,7 @@ if (apiKey) {
   // Bind fetch to globalThis: the SDK stores the function reference and later
   // calls `this.fetch(...)` from instance scope, so an unbound builtin throws
   // "Failed to execute 'fetch' on 'Window': Illegal invocation". Pre-binding
-  // here works around @vendodev/sdk@0.2.0 not binding internally.
+  // here works around @vendodev/sdk@0.3.0 not binding internally.
   window.Vendo = new Vendo({
     apiKey,
     baseUrl,
