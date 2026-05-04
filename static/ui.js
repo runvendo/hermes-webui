@@ -1062,6 +1062,7 @@ function renderModelDropdown(){
 
       header.onclick=(e)=>{
         e.preventDefault();
+        e.stopPropagation();
         if(filtering) return; // disable collapse while searching
         if(expandedId===section.id){
           // Allow collapsing the only-open section; nothing else stays open.

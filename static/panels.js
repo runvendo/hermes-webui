@@ -176,19 +176,28 @@ async function _renderVendoPanelSdk() {
     }).catch(() => {});
   }
 
-  // Replace providers + integrations sections with <vendo-connection-card> per connection
+  // Catalog of all enabled integrations — connections.list() returns only what
+  // the deployment is currently bound to, which is empty until the user
+  // connects something. The cards fetch their own connection state via SDK SSE.
   const provEl = document.getElementById('vendoPanelProviders');
   const intEl = document.getElementById('vendoPanelIntegrations');
-  let connections;
+  const provEmpty = document.getElementById('vendoPanelProvidersEmpty');
+  const intEmpty = document.getElementById('vendoPanelIntegrationsEmpty');
+  let integrations;
   try {
-    connections = await window.Vendo.connections.list();
+    integrations = await window.Vendo.integrations.list();
   } catch (err) {
     if (intEl) intEl.innerHTML = `<div style="color:var(--error);padding:12px">${esc(String(err && err.message || err))}</div>`;
     return;
   }
 
-  const ai = connections.filter(c => c.category === 'ai');
-  const other = connections.filter(c => c.category !== 'ai');
+  // Pass through the SDK's baseUrl so each card's own /api/deployments/me/connections
+  // fetch goes same-origin via /api/vendo/proxy when configured (CSP `connect-src 'self'`
+  // blocks the card's default vendo.run target otherwise).
+  const cardBaseUrl = window.Vendo.baseUrl || '';
+
+  const ai = integrations.filter(i => i.enabled && i.category === 'ai');
+  const other = integrations.filter(i => i.enabled && i.category !== 'ai');
 
   if (provEl) {
     provEl.innerHTML = '';
@@ -196,8 +205,15 @@ async function _renderVendoPanelSdk() {
     for (const it of ai) {
       const card = document.createElement('vendo-connection-card');
       card.setAttribute('slug', it.slug);
+      if (cardBaseUrl) card.setAttribute('base-url', cardBaseUrl);
+      // Seed branding upfront — the card's own /connections fetch is deployment-scoped
+      // and may not include this slug until the user connects, so attributes drive
+      // the initial render.
+      if (it.logoUrl) card.setAttribute('logo-url', it.logoUrl);
+      if (it.brandColor) card.setAttribute('brand-color', it.brandColor);
       provEl.appendChild(card);
     }
+    if (provEmpty) provEmpty.style.display = ai.length === 0 ? '' : 'none';
   }
   if (intEl) {
     intEl.innerHTML = '';
@@ -205,8 +221,12 @@ async function _renderVendoPanelSdk() {
     for (const it of other) {
       const card = document.createElement('vendo-connection-card');
       card.setAttribute('slug', it.slug);
+      if (cardBaseUrl) card.setAttribute('base-url', cardBaseUrl);
+      if (it.logoUrl) card.setAttribute('logo-url', it.logoUrl);
+      if (it.brandColor) card.setAttribute('brand-color', it.brandColor);
       intEl.appendChild(card);
     }
+    if (intEmpty) intEmpty.style.display = other.length === 0 ? '' : 'none';
   }
 
   // Search over card slugs
