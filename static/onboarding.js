@@ -1,7 +1,88 @@
-const ONBOARDING={status:null,step:0,steps:['system','setup','workspace','password','finish'],form:{provider:'openrouter',workspace:'',model:'',password:'',apiKey:'',baseUrl:''},active:false,_vendoSetupUnsubscribe:null};
+const ONBOARDING={status:null,step:0,steps:['system','setup','workspace','password','finish'],form:{provider:'openrouter',workspace:'',model:'',password:'',apiKey:'',baseUrl:''},active:false,_vendoSetupUnsubscribe:null,probe:{status:'idle',error:null,detail:'',models:null,probedKey:''}};
 
 function _isVendoActive(){
   return !!(ONBOARDING && ONBOARDING.status && ONBOARDING.status.vendo && ONBOARDING.status.vendo.active);
+}
+
+// ── Onboarding base-URL probe (#1499) ───────────────────────────────────────
+// Probes <base_url>/models so the wizard can validate the configured endpoint
+// before persisting AND populate the model dropdown from the live catalog.
+// Probe state lives on ONBOARDING.probe; the dropdown render and the
+// nextOnboardingStep gate both consult it.
+
+let _onboardingProbeTimer=null;
+
+function _onboardingProbeKey(provider,baseUrl,apiKey){
+  return `${provider||''}|${(baseUrl||'').trim().replace(/\/+$/,'')}|${apiKey||''}`;
+}
+
+function _setOnboardingProbeState(patch){
+  ONBOARDING.probe={...ONBOARDING.probe,...patch};
+  // Re-render body so probe status / model dropdown reflect new state.
+  _renderOnboardingBody();
+}
+
+async function _runOnboardingProbe({force=false}={}){
+  const provider=ONBOARDING.form.provider;
+  const cat=_getOnboardingSetupProvider(provider);
+  if(!cat||!cat.requires_base_url){
+    _setOnboardingProbeState({status:'idle',error:null,detail:'',models:null,probedKey:''});
+    return ONBOARDING.probe;
+  }
+  const baseUrl=(ONBOARDING.form.baseUrl||'').trim();
+  if(!baseUrl){
+    _setOnboardingProbeState({status:'idle',error:null,detail:'',models:null,probedKey:''});
+    return ONBOARDING.probe;
+  }
+  const apiKey=(ONBOARDING.form.apiKey||'').trim();
+  const key=_onboardingProbeKey(provider,baseUrl,apiKey);
+  if(!force&&ONBOARDING.probe.probedKey===key&&ONBOARDING.probe.status!=='probing'){
+    return ONBOARDING.probe;
+  }
+  _setOnboardingProbeState({status:'probing',error:null,detail:'',probedKey:key});
+  try{
+    const res=await api('/api/onboarding/probe',{method:'POST',body:JSON.stringify({provider,base_url:baseUrl,api_key:apiKey||undefined})});
+    if(res&&res.ok){
+      _setOnboardingProbeState({status:'ok',error:null,detail:'',models:Array.isArray(res.models)?res.models:[],probedKey:key});
+      // If the user hasn't picked a model yet (or their pick is no longer in
+      // the list), default to the first probed model so Continue isn't blocked
+      // on an empty selection.
+      const stillPresent=ONBOARDING.form.model&&(res.models||[]).some(m=>m.id===ONBOARDING.form.model);
+      if(!stillPresent&&(res.models||[]).length>0){
+        ONBOARDING.form.model=res.models[0].id;
+        _renderOnboardingBody();
+      }
+    }else{
+      const err=(res&&res.error)||'unreachable';
+      const detail=(res&&res.detail)||'';
+      _setOnboardingProbeState({status:'error',error:err,detail,models:null,probedKey:key});
+    }
+  }catch(e){
+    _setOnboardingProbeState({status:'error',error:'unreachable',detail:(e&&e.message)||String(e),models:null,probedKey:key});
+  }
+  return ONBOARDING.probe;
+}
+
+function _scheduleOnboardingProbe(){
+  if(_onboardingProbeTimer)clearTimeout(_onboardingProbeTimer);
+  _onboardingProbeTimer=setTimeout(()=>{_runOnboardingProbe();},400);
+}
+
+function _onboardingProbeMessage(probe){
+  if(!probe||probe.status==='idle')return '';
+  if(probe.status==='probing')return t('onboarding_probe_probing')||'Testing connection…';
+  if(probe.status==='ok'){
+    const n=(probe.models||[]).length;
+    const tmpl=t('onboarding_probe_ok')||'Connected. {n} model(s) available.';
+    return tmpl.replace('{n}',String(n));
+  }
+  // status === 'error'
+  const errKey='onboarding_probe_error_'+probe.error;
+  const localized=t(errKey);
+  // i18n.js's `t()` returns the key itself when missing — fall back to a generic message.
+  const heading=(localized&&localized!==errKey)?localized:(t('onboarding_probe_error_generic')||'Could not reach the configured base URL.');
+  const detail=probe.detail?` (${probe.detail})`:'';
+  return heading+detail;
 }
 
 function _getOnboardingSetupProviders(){
@@ -90,7 +171,48 @@ function _getOnboardingWorkspaceChoices(){
 
 function _getOnboardingProviderModelChoices(){
   const provider=_getOnboardingSetupProvider(ONBOARDING.form.provider);
+  // Probe-discovered models (#1499) take precedence over the static catalog
+  // for providers with requires_base_url=True.  The catalog ships an empty
+  // list for self-hosted providers (lmstudio, ollama, custom) — without the
+  // probe the user had nothing to pick from.
+  if(provider&&provider.requires_base_url&&ONBOARDING.probe&&ONBOARDING.probe.status==='ok'&&Array.isArray(ONBOARDING.probe.models)&&ONBOARDING.probe.models.length){
+    return ONBOARDING.probe.models;
+  }
   return provider?(provider.models||[]):[];
+}
+
+function _renderOnboardingBaseUrlField(showBaseUrl){
+  // Renders the base_url input PLUS the probe status banner / Test button
+  // when the active provider has requires_base_url=True (#1499).  Returns
+  // the empty string when the active provider does not require a base URL,
+  // so the existing call sites can continue to template-interpolate this in
+  // place of the previous inline `<label …>` snippet.
+  if(!showBaseUrl)return '';
+  const probe=ONBOARDING.probe||{status:'idle'};
+  const msg=_onboardingProbeMessage(probe);
+  let banner='';
+  if(msg){
+    const cls={ok:'onboarding-probe-ok',probing:'onboarding-probe-probing',error:'onboarding-probe-error'}[probe.status]||'';
+    banner=`<p class="onboarding-copy onboarding-probe-banner ${cls}">${esc(msg)}</p>`;
+  }
+  const testBtnLabel=t('onboarding_probe_test_button')||'Test connection';
+  const testBtnDisabled=(probe.status==='probing')?'disabled':'';
+  return `<label class="onboarding-field"><span>${t('onboarding_base_url_label')}</span><input id="onboardingBaseUrlInput" value="${esc(ONBOARDING.form.baseUrl||'')}" placeholder="${t('onboarding_base_url_placeholder')}" oninput="ONBOARDING.form.baseUrl=this.value;_scheduleOnboardingProbe()" onblur="_runOnboardingProbe()"></label><div class="onboarding-probe-row"><button type="button" class="onboarding-probe-btn" ${testBtnDisabled} onclick="_runOnboardingProbe({force:true})">${esc(testBtnLabel)}</button></div>${banner}`;
+}
+
+function _renderOnboardingApiKeyField(){
+  // Renders the API-key input.  For providers flagged `key_optional` in the
+  // setup catalog (lmstudio, ollama, custom — typically self-hosted servers
+  // that run keyless by default), the field shows an "(optional)" hint and
+  // empty input is accepted on Continue.  Pre-#1499-third-sub-bug-fix the
+  // wizard required a non-empty string here even for keyless installs, which
+  // forced users to type random gibberish to clear onboarding.
+  const provider=_getOnboardingSetupProvider(ONBOARDING.form.provider);
+  const keyOptional=!!(provider&&provider.key_optional);
+  const labelKey=keyOptional?'onboarding_api_key_label_optional':'onboarding_api_key_label';
+  const placeholderKey=keyOptional?'onboarding_api_key_placeholder_optional':'onboarding_api_key_placeholder';
+  const helpHtml=keyOptional?`<p class="onboarding-copy onboarding-api-key-help">${esc(t('onboarding_api_key_help_keyless')||'')}</p>`:'';
+  return `<label class="onboarding-field" id="onboardingApiKeyField"><span>${t(labelKey)}</span><input id="onboardingApiKeyInput" type="password" value="${esc(ONBOARDING.form.apiKey||'')}" placeholder="${t(placeholderKey)}" oninput="ONBOARDING.form.apiKey=this.value" onblur="_runOnboardingProbe()"></label>${helpHtml}`;
 }
 
 function _getOnboardingSelectedModel(){
@@ -191,11 +313,8 @@ function _renderOnboardingBody(){
             <span>${t('onboarding_provider_label')}</span>
             <select id="onboardingProviderSelect" onchange="syncOnboardingProvider(this.value)">${groupedOptions}</select>
           </label>
-          <label class="onboarding-field" id="onboardingApiKeyField">
-            <span>${t('onboarding_api_key_label')}</span>
-            <input id="onboardingApiKeyInput" type="password" value="${esc(ONBOARDING.form.apiKey||'')}" placeholder="${t('onboarding_api_key_placeholder')}" oninput="ONBOARDING.form.apiKey=this.value">
-          </label>
-          ${showBaseUrl?`<label class="onboarding-field"><span>${t('onboarding_base_url_label')}</span><input id="onboardingBaseUrlInput" value="${esc(ONBOARDING.form.baseUrl||'')}" placeholder="${t('onboarding_base_url_placeholder')}" oninput="ONBOARDING.form.baseUrl=this.value"></label>`:''}
+          ${_renderOnboardingApiKeyField()}
+          ${_renderOnboardingBaseUrlField(showBaseUrl)}
           <p class="onboarding-copy">${keyHelp}</p>`;
       } else {
         _setOnboardingNotice(t('onboarding_notice_setup_required'),'warn');
@@ -212,11 +331,8 @@ function _renderOnboardingBody(){
             <span>${t('onboarding_provider_label')}</span>
             <select id="onboardingProviderSelect" onchange="syncOnboardingProvider(this.value)">${groupedOptions}</select>
           </label>
-          <label class="onboarding-field" id="onboardingApiKeyField">
-            <span>${t('onboarding_api_key_label')}</span>
-            <input id="onboardingApiKeyInput" type="password" value="${esc(ONBOARDING.form.apiKey||'')}" placeholder="${t('onboarding_api_key_placeholder')}" oninput="ONBOARDING.form.apiKey=this.value">
-          </label>
-          ${showBaseUrl?`<label class="onboarding-field"><span>${t('onboarding_base_url_label')}</span><input id="onboardingBaseUrlInput" value="${esc(ONBOARDING.form.baseUrl||'')}" placeholder="${t('onboarding_base_url_placeholder')}" oninput="ONBOARDING.form.baseUrl=this.value"></label>`:''}
+          ${_renderOnboardingApiKeyField()}
+          ${_renderOnboardingBaseUrlField(showBaseUrl)}
           <p class="onboarding-copy">${keyHelp}</p>`;
       }
       return;
@@ -228,12 +344,20 @@ function _renderOnboardingBody(){
         <span>${t('onboarding_provider_label')}</span>
         <select id="onboardingProviderSelect" onchange="syncOnboardingProvider(this.value)">${groupedOptions}</select>
       </label>
-      <label class="onboarding-field">
-        <span>${t('onboarding_api_key_label')}</span>
-        <input id="onboardingApiKeyInput" type="password" value="${esc(ONBOARDING.form.apiKey||'')}" placeholder="${t('onboarding_api_key_placeholder')}" oninput="ONBOARDING.form.apiKey=this.value">
-      </label>
-      ${showBaseUrl?`<label class="onboarding-field"><span>${t('onboarding_base_url_label')}</span><input id="onboardingBaseUrlInput" value="${esc(ONBOARDING.form.baseUrl||'')}" placeholder="${t('onboarding_base_url_placeholder')}" oninput="ONBOARDING.form.baseUrl=this.value"></label>`:''}
+      ${_renderOnboardingApiKeyField()}
+      ${_renderOnboardingBaseUrlField(showBaseUrl)}
       <p class="onboarding-copy">${keyHelp}</p>
+      <div class="onboarding-oauth-card" id="codexOAuthCard">
+        <div class="onboarding-oauth-icon">🔑</div>
+        <div style="flex:1">
+          <strong>${t('oauth_login_codex')}</strong>
+          <p style="margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.5">
+            ${t('onboarding_oauth_switch_hint')}
+          </p>
+        </div>
+        <button class="sm-btn" id="codexOAuthBtn" onclick="startCodexOAuth()" style="margin-left:auto;flex-shrink:0">${t('oauth_login_codex')}</button>
+      </div>
+      <div id="codexOAuthFlow" style="display:none;margin-top:12px"></div>
       ${showBaseUrl?`<p class="onboarding-copy">${t('onboarding_base_url_help')}</p>`:''}
       <p class="onboarding-copy">${esc(setup.unsupported_note||'')||''}</p>`;
     return;
@@ -649,6 +773,23 @@ async function nextOnboardingStep(){
         ONBOARDING.form.baseUrl=(($('onboardingBaseUrlInput')||{}).value||ONBOARDING.form.baseUrl||'').trim();
         if(!ONBOARDING.form.provider) throw new Error(t('onboarding_error_provider_required'));
         if(ONBOARDING.form.provider==='custom' && !ONBOARDING.form.baseUrl) throw new Error(t('onboarding_error_base_url_required'));
+        // For self-hosted providers (requires_base_url=True), gate Continue on a
+        // successful probe of <base_url>/models — otherwise the wizard would
+        // happily persist an unreachable URL and finish in 200ms with no
+        // outbound HTTP, exactly the bug in #1499.  Run the probe synchronously
+        // here, then check status; the probe is idempotent & cached on
+        // (provider, baseUrl, apiKey) so this rarely triggers a second network
+        // call when the user already saw a green banner.
+        const cat=_getOnboardingSetupProvider(ONBOARDING.form.provider);
+        if(cat&&cat.requires_base_url){
+          if(!ONBOARDING.form.baseUrl) throw new Error(t('onboarding_error_base_url_required'));
+          await _runOnboardingProbe();
+          if(ONBOARDING.probe.status!=='ok'){
+            // Surface the same localized error string the inline banner shows.
+            const msg=_onboardingProbeMessage(ONBOARDING.probe)||t('onboarding_error_probe_failed')||'Could not reach the configured base URL.';
+            throw new Error(msg);
+          }
+        }
       }
     }
     if(currentKey==='providers'){
@@ -680,5 +821,88 @@ async function nextOnboardingStep(){
     _renderOnboardingBody();
   }catch(e){
     _setOnboardingNotice(e.message||String(e),'warn');
+  }
+}
+
+/* ── Codex OAuth device-code flow ── */
+let _codexOAuthSSE=null;
+
+async function startCodexOAuth(){
+  const flowDiv=$('codexOAuthFlow');
+  const btn=$('codexOAuthBtn');
+  if(!flowDiv)return;
+  if(btn){btn.disabled=true;btn.textContent='...';}
+  flowDiv.style.display='block';
+  flowDiv.innerHTML=`<div class="onboarding-oauth-card onboarding-oauth-pending"><div class="onboarding-oauth-icon">⏳</div><div><strong>${t('oauth_codex_polling')}</strong><p>Starting device-code flow…</p></div></div>`;
+  try{
+    const resp=await api('/api/oauth/codex/start',{method:'POST'});
+    if(resp.error) throw new Error(resp.error);
+    const{device_code,user_code,verification_uri}=resp;
+    if(!device_code||!user_code||!verification_uri) throw new Error('Invalid OAuth response');
+    // Open verification URI in new tab
+    window.open(verification_uri,'_blank');
+    // Show user code prominently
+    flowDiv.innerHTML=`
+      <div class="onboarding-oauth-card onboarding-oauth-pending">
+        <div class="onboarding-oauth-icon">📋</div>
+        <div style="flex:1">
+          <strong>${t('oauth_codex_step1')}</strong>
+          <p><a href="${esc(verification_uri)}" target="_blank" rel="noopener" style="color:var(--accent);word-break:break-all">${esc(verification_uri)}</a></p>
+          <p style="margin-top:8px"><strong>${t('oauth_codex_step2')}</strong></p>
+          <code style="display:inline-block;font-size:18px;letter-spacing:0.1em;background:rgba(255,255,255,.08);padding:6px 14px;border-radius:8px;margin-top:4px;user-select:all">${esc(user_code)}</code>
+          <p style="margin-top:8px;color:var(--muted);font-size:13px">${t('oauth_codex_polling')}</p>
+        </div>
+      </div>`;
+    // Connect to SSE poll endpoint
+    const pollUrl=new URL('api/oauth/codex/poll?device_code='+encodeURIComponent(device_code),location.href);
+    if(_codexOAuthSSE){_codexOAuthSSE.close();_codexOAuthSSE=null;}
+    _codexOAuthSSE=new EventSource(pollUrl.href);
+    _codexOAuthSSE.onmessage=function(ev){
+      let data;
+      try{data=JSON.parse(ev.data);}catch(e){return;}
+      if(data.status==='success'){
+        if(_codexOAuthSSE){_codexOAuthSSE.close();_codexOAuthSSE=null;}
+        flowDiv.innerHTML=`
+          <div class="onboarding-oauth-card onboarding-oauth-ready">
+            <div class="onboarding-oauth-icon">✅</div>
+            <div><strong>${t('oauth_codex_success')}</strong>
+            <p>Token saved to credential pool. You can now use Codex as a provider.</p></div>
+          </div>`;
+        if(btn){btn.disabled=false;btn.textContent=t('oauth_login_codex');}
+        showToast(t('oauth_codex_success'));
+        // Refresh onboarding status in background
+        loadOnboardingWizard().catch(()=>{});
+      }else if(data.status==='error'){
+        if(_codexOAuthSSE){_codexOAuthSSE.close();_codexOAuthSSE=null;}
+        const isExpired=(data.error||'').includes('expired');
+        flowDiv.innerHTML=`
+          <div class="onboarding-oauth-card" style="border-color:var(--error,#e55)">
+            <div class="onboarding-oauth-icon">❌</div>
+            <div><strong>${isExpired?t('oauth_codex_expired'):t('oauth_codex_error')}</strong>
+            <p>${esc(data.error||'Unknown error')}</p></div>
+          </div>`;
+        if(btn){btn.disabled=false;btn.textContent=t('oauth_login_codex');}
+      }
+      // 'polling' status — keep waiting
+    };
+    _codexOAuthSSE.onerror=function(){
+      if(_codexOAuthSSE){_codexOAuthSSE.close();_codexOAuthSSE=null;}
+      if(btn){btn.disabled=false;btn.textContent=t('oauth_login_codex');}
+      // Don't overwrite if already showing success/error
+      if(!flowDiv.querySelector('.onboarding-oauth-ready')&&!flowDiv.querySelector('[style*="error"]')){
+        flowDiv.innerHTML=`
+          <div class="onboarding-oauth-card" style="border-color:var(--error,#e55)">
+            <div class="onboarding-oauth-icon">❌</div>
+            <div><strong>${t('oauth_codex_error')}</strong><p>Connection lost. Please try again.</p></div>
+          </div>`;
+      }
+    };
+  }catch(e){
+    flowDiv.innerHTML=`
+      <div class="onboarding-oauth-card" style="border-color:var(--error,#e55)">
+        <div class="onboarding-oauth-icon">❌</div>
+        <div><strong>${t('oauth_codex_error')}</strong><p>${esc(e.message||String(e))}</p></div>
+      </div>`;
+    if(btn){btn.disabled=false;btn.textContent=t('oauth_login_codex');}
   }
 }

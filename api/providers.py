@@ -44,9 +44,38 @@ _PROVIDER_ENV_VAR: dict[str, str] = {
     "x-ai": "XAI_API_KEY",
     "opencode-zen": "OPENCODE_ZEN_API_KEY",
     "opencode-go": "OPENCODE_GO_API_KEY",
-    "ollama": "OLLAMA_API_KEY",
+    # NOTE: bare "ollama" (local) deliberately omitted — local Ollama is keyless
+    # by default and the runtime in hermes_cli/runtime_provider.py only consumes
+    # OLLAMA_API_KEY when the base URL hostname is ollama.com (Ollama Cloud).
+    # If we mapped both providers to the same env var, configuring Ollama Cloud
+    # would falsely flip the local Ollama card to "API key configured" (#1410).
+    # Users who genuinely run an authenticated local Ollama can still set a key
+    # via providers.ollama.api_key in config.yaml — that path remains supported
+    # by _provider_has_key().
     "ollama-cloud": "OLLAMA_API_KEY",
+    # Bare "lmstudio" maps to LM_API_KEY — the canonical env var the agent CLI
+    # runtime reads (hermes_cli/auth.py:182, api_key_env_vars=("LM_API_KEY",)).
+    # Pre-#1499/#1500 the WebUI used LMSTUDIO_API_KEY here, which made Settings
+    # report keys correctly but the agent runtime ignored them — masked in
+    # practice by the LMSTUDIO_NOAUTH_PLACEHOLDER for keyless local installs.
+    # Aligning to LM_API_KEY makes a configured LM Studio key actually work
+    # for chat. The legacy LMSTUDIO_API_KEY name is read by `_provider_has_key`
+    # via _PROVIDER_ENV_VAR_ALIASES below so existing users don't see Settings
+    # flip to "no key" after upgrading.
+    "lmstudio": "LM_API_KEY",
     "nvidia": "NVIDIA_API_KEY",
+}
+
+# Read-only legacy env-var aliases.  When `_provider_has_key(pid)` looks up its
+# canonical env var name and finds nothing, it also checks any aliases listed
+# here.  Onboarding (api/onboarding.py:apply_onboarding_setup) only writes the
+# canonical name.  Use this for env vars that were renamed in a past release;
+# add an entry, ship for a few releases, then remove the alias once enough
+# users have upgraded.
+_PROVIDER_ENV_VAR_ALIASES: dict[str, tuple[str, ...]] = {
+    # #1500 — agent runtime reads LM_API_KEY (canonical), but WebUI builds
+    # ≤ v0.50.272 wrote LMSTUDIO_API_KEY into .env.  Keep reading both.
+    "lmstudio": ("LMSTUDIO_API_KEY",),
 }
 
 # Providers that use OAuth or token flows — their credentials are managed
@@ -204,6 +233,14 @@ def _provider_has_key(provider_id: str) -> bool:
             return True
         if os.getenv(env_var):
             return True
+        # Fall back to legacy env-var aliases (e.g. lmstudio's pre-#1500
+        # LMSTUDIO_API_KEY name) so existing users don't lose detection
+        # after an env-var rename.  See _PROVIDER_ENV_VAR_ALIASES.
+        for alias in _PROVIDER_ENV_VAR_ALIASES.get(provider_id, ()) or ():
+            if env_values.get(alias):
+                return True
+            if os.getenv(alias):
+                return True
 
     cfg = get_config()
     # Check model.api_key — only match if this provider is the active one.
@@ -345,7 +382,22 @@ def get_providers() -> dict[str, Any]:
                 elif os.getenv(env_var):
                     key_source = "env_var"
                 else:
-                    key_source = "config_yaml"
+                    # Canonical name not set; check legacy aliases (e.g. lmstudio's
+                    # pre-#1500 LMSTUDIO_API_KEY) so existing users see "env_file"
+                    # instead of being misreported as "config_yaml" when the key
+                    # actually lives in .env under the old name.
+                    aliased = False
+                    for alias in _PROVIDER_ENV_VAR_ALIASES.get(pid, ()) or ():
+                        if env_values.get(alias):
+                            key_source = "env_file"
+                            aliased = True
+                            break
+                        if os.getenv(alias):
+                            key_source = "env_var"
+                            aliased = True
+                            break
+                    if not aliased:
+                        key_source = "config_yaml"
             else:
                 key_source = "config_yaml"
         elif pid not in _PROVIDER_ENV_VAR:
@@ -374,7 +426,37 @@ def get_providers() -> dict[str, Any]:
                 except Exception:
                     pass
 
-        models = _PROVIDER_MODELS.get(pid, [])
+        models = list(_PROVIDER_MODELS.get(pid, []))
+        models_total = len(models)
+        # Nous Portal: prefer the live catalog so the providers card matches
+        # the dropdown picker (#1538). Same fallback shape as the static-only
+        # case below — when hermes_cli is unavailable or its lookup raises,
+        # we keep the four-entry curated list.
+        #
+        # On large-tier accounts (#1567 reporter Deor saw 396 entries), we
+        # render the same featured subset the picker uses so the providers
+        # card body doesn't become a 396-pill wall. The full count is still
+        # reported via models_total — surfaced in the header line as
+        # "396 models · OAuth" by static/panels.js — so the user knows the
+        # complete catalog is reachable (via /model autocomplete or a future
+        # "show all" disclosure if added).
+        if pid == "nous":
+            try:
+                from hermes_cli.models import provider_model_ids as _provider_model_ids
+
+                live_ids = _provider_model_ids("nous") or []
+                if live_ids:
+                    # Lazy-import to avoid circular dep with api.config.
+                    from api.config import _format_nous_label, _build_nous_featured_set
+
+                    featured_ids, _extras = _build_nous_featured_set(live_ids)
+                    models = [
+                        {"id": f"@nous:{mid}", "label": _format_nous_label(mid)}
+                        for mid in featured_ids
+                    ]
+                    models_total = len(live_ids)
+            except Exception:
+                logger.debug("Failed to load Nous Portal models from hermes_cli")
         # Also include models from config.yaml providers section
         if isinstance(providers_cfg, dict):
             provider_cfg = providers_cfg.get(pid, {})
@@ -384,6 +466,13 @@ def get_providers() -> dict[str, Any]:
                     models = models + [{"id": k, "label": k} for k in cfg_models.keys()]
                 elif isinstance(cfg_models, list):
                     models = models + [{"id": k, "label": k} for k in cfg_models]
+                # Recompute models_total when config.yaml contributes additional
+                # entries on top of the live/static catalog. For non-Nous
+                # providers models_total still equals len(models); for Nous
+                # we keep the live count (which already includes any models
+                # surfaced in the curated featured slice).
+                if pid != "nous":
+                    models_total = len(models)
 
         providers.append({
             "id": pid,
@@ -395,6 +484,14 @@ def get_providers() -> dict[str, Any]:
             "auth_error": auth_error,
             "managed_by": "vendo" if pid in _managed_slugs else None,
             "models": models,
+            # models_total reflects the complete catalog size (e.g. 396 for
+            # an enterprise Nous Portal account), even when "models" is
+            # trimmed to a featured subset for UI scannability. The frontend
+            # uses this for the header text "396 models · OAuth" so users
+            # know the full catalog exists and is reachable via the slash
+            # command. For providers that don't trim, models_total ==
+            # len(models) and the frontend behaves identically to before.
+            "models_total": models_total,
         })
 
     # Scan custom_providers from config.yaml (e.g. glmcode, timicc)

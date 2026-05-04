@@ -608,6 +608,38 @@ def test_streaming_bridge_accepts_current_tool_progress_callback_signature(clean
         "streaming.py must emit live tool completion SSE events"
 
 
+def test_streaming_reads_reasoning_effort_from_config_dict(cleanup_test_sessions):
+    """R17b: WebUI must read agent.reasoning_effort from the dict returned by get_config().
+
+    `get_config()` returns a plain dict (not a wrapper exposing `.cfg`).  The
+    pre-fix line `_cfg.cfg.get('agent', {})` raised AttributeError that the
+    surrounding try/except swallowed, so `_reasoning_config` was always None
+    regardless of what `/reasoning <level>` had been set to.  This static
+    source assertion pins the fix because the runtime symptom is silent.
+    """
+    src = (REPO_ROOT / "api/streaming.py").read_text()
+    assert "_cfg.cfg" not in src, \
+        "get_config() returns a dict; accessing _cfg.cfg drops reasoning_config to None"
+    assert "_cfg.get('agent', {})" in src or '_cfg.get("agent", {})' in src, \
+        "streaming.py must read agent.reasoning_effort via the config dict"
+
+
+def test_streaming_agent_cache_signature_includes_reasoning_config(cleanup_test_sessions):
+    """R17c: changing reasoning effort mid-session must rebuild the cached per-session agent.
+
+    Without `_reasoning_config` participating in `_sig_blob`, the cache key
+    matches the old entry and the operator's `/reasoning xhigh` change has
+    no effect on the live session.
+    """
+    src = (REPO_ROOT / "api/streaming.py").read_text()
+    start = src.find("_sig_blob = _json.dumps")
+    end = src.find("_agent_sig", start)
+    assert start >= 0 and end > start, "agent cache signature block not found"
+    sig_block = src[start:end]
+    assert "_reasoning_config" in sig_block, \
+        "agent cache signature must include reasoning_config so xhigh/medium changes take effect"
+
+
 def test_messages_js_supports_live_reasoning_and_tool_completion(cleanup_test_sessions):
     """R18: messages.js must render live reasoning and react to tool completion events.
     Without these handlers, the operator only sees generic Thinking… or nothing
@@ -665,13 +697,15 @@ def test_ui_js_keeps_reasoning_only_assistant_messages_visible(cleanup_test_sess
 
 
 def test_ui_js_does_not_hide_anchor_segments_that_contain_thinking(cleanup_test_sessions):
-    """R19c2: assistant anchor segments that contain a thinking card must remain
-    visible; only truly empty tool-call anchor segments should be hidden.
+    """R19c2/R19c3: reasoning-only messages must remain visible through the
+    shared collapsed activity dropdown, even when the anchor segment has no prose.
     """
     src = (REPO_ROOT / "static" / "ui.js").read_text()
     compact = src.replace(' ', '').replace('\n', '')
-    assert "}elseif(!thinkingText){" in compact, \
-        "renderMessages must only hide assistant anchor segments when they have no thinking content"
+    assert "assistantThinking.set(rawIdx,thinkingText)" in compact, \
+        "renderMessages must preserve reasoning text before hiding empty anchor segments"
+    assert "_thinkingActivityNode(thinkingText)" in src, \
+        "thinking-only assistant content should render inside the shared activity dropdown"
 
 
 def test_messages_js_live_assistant_segment_reuses_live_turn_wrapper(cleanup_test_sessions):

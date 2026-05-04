@@ -7,23 +7,32 @@
 
 // Cache version is injected by the server at request time (routes.py /sw.js handler).
 // Bumps automatically whenever the git commit changes — no manual edits needed.
-const CACHE_NAME = 'hermes-shell-__CACHE_VERSION__';
+const CACHE_NAME = 'hermes-shell-__WEBUI_VERSION__';
 
-// Static assets that form the app shell
+// Static assets that form the app shell.
+//
+// Versioned assets (CSS + JS) include `?v=__WEBUI_VERSION__` to match the
+// query string the page sends — see index.html. Without the version query
+// here, every cache lookup against `?v=...` URLs would miss and fall through
+// to network, defeating the pre-cache.
+//
+// Unversioned assets (`./`, manifest.json, favicons) are referenced from
+// index.html without a cache-bust query, so they stay unversioned here too.
+const VQ = '?v=__WEBUI_VERSION__';
 const SHELL_ASSETS = [
   './',
-  './static/style.css',
-  './static/boot.js',
-  './static/ui.js',
-  './static/messages.js',
-  './static/sessions.js',
-  './static/panels.js',
-  './static/commands.js',
-  './static/icons.js',
-  './static/i18n.js',
-  './static/workspace.js',
-  './static/terminal.js',
-  './static/onboarding.js',
+  './static/style.css' + VQ,
+  './static/boot.js' + VQ,
+  './static/ui.js' + VQ,
+  './static/messages.js' + VQ,
+  './static/sessions.js' + VQ,
+  './static/panels.js' + VQ,
+  './static/commands.js' + VQ,
+  './static/icons.js' + VQ,
+  './static/i18n.js' + VQ,
+  './static/workspace.js' + VQ,
+  './static/terminal.js' + VQ,
+  './static/onboarding.js' + VQ,
   './static/favicon.svg',
   './static/favicon-32.png',
   './manifest.json',
@@ -77,11 +86,19 @@ self.addEventListener('fetch', (event) => {
     return; // let browser handle normally
   }
 
-  // API and streaming endpoints — always go to network
+  // Never intercept the service worker script itself. Returning a cached sw.js
+  // prevents the browser from seeing a new cache version after local patches.
+  if (url.pathname.endsWith('/sw.js')) return;
+
+  // API and streaming endpoints — always go to network.
+  // The WebUI may be mounted under a subpath such as /hermes/, so API
+  // requests can look like /hermes/api/sessions rather than /api/sessions.
   if (
     url.pathname.startsWith('/api/') ||
+    url.pathname.includes('/api/') ||
     url.pathname.includes('/stream') ||
-    url.pathname.startsWith('/health')
+    url.pathname.startsWith('/health') ||
+    url.pathname.includes('/health')
   ) {
     return; // let browser handle normally
   }

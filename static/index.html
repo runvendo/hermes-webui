@@ -13,13 +13,13 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Hermes">
-<link rel="apple-touch-icon" href="static/favicon.svg">
+<link rel="apple-touch-icon" sizes="512x512" href="static/apple-touch-icon.png">
 <!-- base href enables subpath mount support; all static paths must stay relative (no leading slash) -->
-<script>(function(){var p=location.pathname.endsWith('/')?location.pathname:(location.pathname.replace(/\/[^\/]*$/,'/')||'/');document.write('<base href="'+location.origin+p+'">');})()</script>
-<script>(function(){var themes={light:1,dark:1,system:1},skins={default:1,ares:1,mono:1,slate:1,poseidon:1,sisyphus:1,charizard:1},legacy={slate:['dark','slate'],solarized:['dark','poseidon'],monokai:['dark','sisyphus'],nord:['dark','slate'],oled:['dark','default']},t=(localStorage.getItem('hermes-theme')||'dark').toLowerCase(),s=(localStorage.getItem('hermes-skin')||'').toLowerCase(),m=legacy[t],theme=m?m[0]:(themes[t]?t:'dark'),skin=skins[s]?s:(m?m[1]:'default');localStorage.setItem('hermes-theme',theme);localStorage.setItem('hermes-skin',skin);if(theme==='system')theme=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';if(theme==='dark')document.documentElement.classList.add('dark');if(skin!=='default')document.documentElement.dataset.skin=skin;})()</script>
+<script>(function(){var path=location.pathname,marker='/session/',i=path.indexOf(marker),p;i>=0?p=(path.slice(0,i+1)||'/'):p=(path.endsWith('/')?path:(path.replace(/\/[^\/]*$/,'/')||'/'));document.write('<base href="'+location.origin+p+'">');})()</script>
+<script>(function(){var themes={light:1,dark:1,system:1},skins={default:1,ares:1,mono:1,slate:1,poseidon:1,sisyphus:1,charizard:1,sienna:1},legacy={slate:['dark','slate'],solarized:['dark','poseidon'],monokai:['dark','sisyphus'],nord:['dark','slate'],oled:['dark','default']},t=(localStorage.getItem('hermes-theme')||'dark').toLowerCase(),s=(localStorage.getItem('hermes-skin')||'').toLowerCase(),m=legacy[t],theme=m?m[0]:(themes[t]?t:'dark'),skin=skins[s]?s:(m?m[1]:'default');localStorage.setItem('hermes-theme',theme);localStorage.setItem('hermes-skin',skin);if(theme==='system')theme=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';if(theme==='dark')document.documentElement.classList.add('dark');if(skin!=='default')document.documentElement.dataset.skin=skin;})()</script>
 <script>(function(){var fs=localStorage.getItem('hermes-font-size');if(fs&&fs!=='default')document.documentElement.dataset.fontSize=fs;})()</script>
 <script>(function(){try{document.documentElement.dataset.workspacePanel=localStorage.getItem('hermes-webui-workspace-panel')==='open'?'open':'closed';}catch(e){document.documentElement.dataset.workspacePanel='closed';}})()</script>
-<link rel="stylesheet" href="static/style.css">
+<link rel="stylesheet" href="static/style.css?v=__WEBUI_VERSION__">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" integrity="sha384-LJcOxlx9IMbNXDqJ2axpfEQKkAYbFjJfhXexLfiRJhjDU81mzgkiQq8rkV0j6dVh" crossorigin="anonymous">
   <!-- KaTeX math rendering CSS (loaded eagerly to prevent layout shift) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" integrity="sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP" crossorigin="anonymous">
@@ -48,7 +48,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function() {
-        navigator.serviceWorker.register('sw.js').catch(function(err) {
+        navigator.serviceWorker.register('sw.js?v=__WEBUI_VERSION__').catch(function(err) {
           console.warn('[pwa] Service worker registration failed:', err);
         });
       });
@@ -90,6 +90,7 @@
     <button class="rail-btn nav-tab" data-panel="profiles" onclick="switchPanel('profiles')" title="Agent profiles" data-i18n-title="tab_profiles" aria-label="Agent profiles"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></button>
     <button class="rail-btn nav-tab" data-panel="vendo" onclick="switchPanel('vendo')" title="Vendo" data-i18n-title="tab_vendo" aria-label="Vendo"><div class="nav-rail-vendo-mark" aria-label="Vendo" title="Vendo"><span>V</span></div></button>
     <button class="rail-btn nav-tab" data-panel="todos" onclick="switchPanel('todos')" title="Current task list" data-i18n-title="tab_todos" aria-label="Todos"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg></button>
+    <button class="rail-btn nav-tab" data-panel="insights" onclick="switchPanel('insights')" title="Insights" data-i18n-title="tab_insights" aria-label="Insights"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg></button>
     <div class="rail-spacer"></div>
     <button class="rail-btn nav-tab" data-panel="settings" onclick="switchPanel('settings')" title="Settings" data-i18n-title="tab_settings" aria-label="Settings"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
   </nav>
@@ -104,6 +105,7 @@
       <button class="nav-tab" data-panel="profiles" data-label="Profiles" onclick="switchPanel('profiles')" title="Agent profiles" data-i18n-title="tab_profiles"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></button>
       <button class="nav-tab" data-panel="vendo" data-label="Vendo" onclick="switchPanel('vendo')" title="Vendo" data-i18n-title="tab_vendo"><div class="nav-rail-vendo-mark" aria-label="Vendo" title="Vendo"><span>V</span></div></button>
       <button class="nav-tab" data-panel="todos" data-label="Todos" onclick="switchPanel('todos')" title="Current task list" data-i18n-title="tab_todos"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg></button>
+      <button class="nav-tab" data-panel="insights" data-label="Insights" onclick="switchPanel('insights')" title="Insights" data-i18n-title="tab_insights"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg></button>
       <!-- Settings button mirrored here for mobile (rail is desktop-only via @media >=768px). Keep in sync with rail entry. -->
       <button class="nav-tab" data-panel="settings" onclick="switchPanel('settings')" title="Settings" data-i18n-title="tab_settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     </div>
@@ -155,6 +157,23 @@
         <span data-i18n="current_task_list">Current task list</span>
       </div>
       <div id="todoPanel" style="flex:1;overflow-y:auto;padding:8px 12px"></div>
+    </div>
+    <!-- Insights panel -->
+    <div class="panel-view" id="panelInsights">
+      <div class="panel-head">
+        <span data-i18n="tab_insights">Insights</span>
+        <div class="panel-head-actions">
+          <button class="panel-head-btn" id="insightsRefreshBtn" onclick="loadInsights(true)" title="Refresh" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        </div>
+      </div>
+      <div class="panel-head-sub" style="padding:0 12px 8px">
+        <select id="insightsPeriod" onchange="loadInsights()" style="width:100%;background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px">
+          <option value="7">7 days</option>
+          <option value="30" selected>30 days</option>
+          <option value="90">90 days</option>
+          <option value="365">365 days</option>
+        </select>
+      </div>
     </div>
     <!-- Workspaces panel -->
     <div class="panel-view" id="panelWorkspaces">
@@ -298,6 +317,7 @@
     <div class="update-banner" id="updateBanner">
       <div style="display:flex;flex-direction:column;flex:1;min-width:0">
         <span id="updateMsg"></span>
+        <a id="updateWhatsNew" href="#" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent);text-decoration:underline;display:none;margin-left:8px;white-space:nowrap">What's new?</a>
         <div id="updateError" style="display:none;font-size:12px;color:var(--error,#e05);margin-top:4px;word-break:break-word"></div>
       </div>
       <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap">
@@ -403,6 +423,7 @@
           </div>
         </div>
       </div>
+      <div id="handoffHintContainer" class="handoff-hint-container" style="display:none;"></div>
       </div>
       <!-- Queue pill outer: same positioning wrapper as .queue-card (max-width + padding) -->
       <div class="queue-pill-outer">
@@ -416,6 +437,10 @@
         </div>
         <div class="attach-tray" id="attachTray"></div>
         <div class="mic-status" id="micStatus" style="display:none"><span class="mic-dot"></span> Listening…</div>
+        <div class="voice-mode-bar" id="voiceModeBar" style="display:none">
+          <span class="voice-mode-indicator" id="voiceModeIndicator"></span>
+          <span class="voice-mode-label" id="voiceModeLabel"></span>
+        </div>
         <textarea id="msg" rows="1" placeholder="Message Hermes…"></textarea>
         <div class="composer-footer">
           <div class="composer-left">
@@ -423,12 +448,23 @@
             <button class="icon-btn" id="btnAttach" title="Attach files">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
-            <button class="icon-btn mic-btn" id="btnMic" title="Voice input" style="display:none">
+            <button class="icon-btn mic-btn" id="btnMic" title="Dictate" data-i18n-title="voice_dictate" style="display:none">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="9" y="1" width="6" height="12" rx="3"/>
                 <path d="M5 10a7 7 0 0 0 14 0"/>
                 <line x1="12" y1="19" x2="12" y2="23"/>
                 <line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            </button>
+            <button class="icon-btn voice-mode-btn" id="btnVoiceMode" title="Voice mode" data-i18n-title="voice_mode_toggle" style="display:none">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <!-- Lucide audio-lines: signals two-way voice conversation, matches ChatGPT/Gemini convention. -->
+                <path d="M2 10v4"/>
+                <path d="M6 6v12"/>
+                <path d="M10 3v18"/>
+                <path d="M14 8v8"/>
+                <path d="M18 5v14"/>
+                <path d="M22 10v4"/>
               </svg>
             </button>
             <div class="composer-divider" aria-hidden="true"></div>
@@ -454,6 +490,10 @@
                 </button>
               </div>
             </div>
+            <button class="icon-btn composer-mobile-config-btn" id="composerMobileConfigBtn" type="button" onclick="toggleMobileComposerConfig()" title="Workspace, model, reasoning, and context settings" aria-label="Workspace, model, reasoning, and context settings" aria-haspopup="true" aria-expanded="false" aria-controls="composerMobileConfigPanel">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+              <span class="composer-mobile-ctx-badge" id="composerMobileCtxBadge" aria-hidden="true" style="display:none">0</span>
+            </button>
             <div class="composer-model-wrap">
               <button class="composer-model-chip" id="composerModelChip" type="button" onclick="toggleModelDropdown()" title="Conversation model">
                 <span class="composer-model-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></span>
@@ -489,6 +529,13 @@
                 <span class="composer-reasoning-chevron" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
               </button>
             </div>
+            <div class="composer-toolsets-wrap" id="composerToolsetsWrap">
+              <button class="composer-toolsets-chip" id="composerToolsetsChip" type="button" onclick="toggleToolsetsDropdown()" title="Session toolsets">
+                <span class="composer-toolsets-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+                <span class="composer-toolsets-label" id="composerToolsetsLabel">Global</span>
+                <span class="composer-toolsets-chevron" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+              </button>
+            </div>
           </div>
           <div class="composer-right">
             <span class="composer-status" id="composerStatus" style="display:none"></span>
@@ -518,6 +565,30 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
             </button>
           </div>
+          <div class="composer-mobile-config-panel" id="composerMobileConfigPanel" aria-label="Workspace, model, reasoning, and context settings">
+            <button class="composer-mobile-config-action" id="composerMobileWorkspaceAction" type="button" onclick="toggleComposerWsDropdown()" title="Switch workspace">
+              <span class="composer-workspace-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+              <span class="composer-mobile-config-copy"><span class="composer-mobile-config-kicker" data-i18n="composer_mobile_workspace">Workspace</span><span class="composer-mobile-config-value" id="composerMobileWorkspaceLabel"></span></span>
+            </button>
+            <button class="composer-mobile-config-action" id="composerMobileModelAction" type="button" onclick="toggleModelDropdown()" title="Conversation model">
+              <span class="composer-model-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></span>
+              <span class="composer-mobile-config-copy"><span class="composer-mobile-config-kicker" data-i18n="composer_mobile_model">Model</span><span class="composer-mobile-config-value" id="composerMobileModelLabel"></span></span>
+            </button>
+            <button class="composer-mobile-config-action" id="composerMobileReasoningAction" type="button" onclick="toggleReasoningDropdown()" title="Reasoning effort level" style="display:none">
+              <span class="composer-reasoning-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></svg></span>
+              <span class="composer-mobile-config-copy"><span class="composer-mobile-config-kicker" data-i18n="composer_mobile_reasoning">Reasoning</span><span class="composer-mobile-config-value" id="composerMobileReasoningLabel"></span></span>
+            </button>
+            <div class="composer-mobile-config-action composer-mobile-context-action" id="composerMobileContextAction" role="group" aria-label="Context window" style="display:none">
+              <span class="composer-mobile-config-copy composer-mobile-context-copy">
+                <span class="composer-mobile-config-kicker" data-i18n="composer_mobile_context">Context</span>
+                <span class="composer-mobile-config-value" id="composerMobileContextUsage"></span>
+                <span class="composer-mobile-context-detail" id="composerMobileContextTokens"></span>
+                <span class="composer-mobile-context-detail" id="composerMobileContextThreshold"></span>
+                <span class="composer-mobile-context-detail" id="composerMobileContextCost" style="display:none"></span>
+              </span>
+              <button class="ctx-compress-btn composer-mobile-context-compress" id="composerMobileCtxCompressBtn" type="button" style="display:none"></button>
+            </div>
+          </div>
           <div class="profile-dropdown" id="profileDropdown"></div>
           <div class="ws-dropdown ws-dropdown-footer" id="composerWsDropdown"></div>
           <div class="composer-reasoning-dropdown" id="composerReasoningDropdown">
@@ -527,6 +598,17 @@
             <div class="reasoning-option" data-effort="medium">Medium</div>
             <div class="reasoning-option" data-effort="high">High</div>
             <div class="reasoning-option" data-effort="xhigh">Extra High</div>
+          </div>
+          <div class="composer-toolsets-dropdown" id="composerToolsetsDropdown">
+            <div class="toolsets-dropdown-desc" id="toolsetsDropdownDesc"></div>
+            <div class="toolsets-dropdown-state" id="toolsetsDropdownState"></div>
+            <div class="toolsets-dropdown-input-row">
+              <input type="text" id="toolsetsInput" class="toolsets-input" placeholder="" autocomplete="off">
+            </div>
+            <div class="toolsets-dropdown-actions">
+              <button type="button" class="toolsets-action-btn toolsets-apply-btn" id="toolsetsApplyBtn">Apply</button>
+              <button type="button" class="toolsets-action-btn toolsets-clear-btn" id="toolsetsClearBtn">Clear (global)</button>
+            </div>
           </div>
           <div class="model-dropdown" id="composerModelDropdown"></div>
         </div>
@@ -623,6 +705,14 @@
         <div class="main-view-empty-sub" data-i18n="profiles_empty_sub">Pick an agent profile from the sidebar to view and edit its settings, or create a new one.</div>
       </div>
     </div>
+    <div id="mainInsights" class="main-view">
+      <div class="main-view-header">
+        <div class="main-view-title" data-i18n="insights_title">Usage Analytics</div>
+      </div>
+      <div class="main-view-content" id="insightsContent" style="padding:16px;overflow-y:auto">
+        <div style="color:var(--muted);font-size:12px" data-i18n="loading">Loading...</div>
+      </div>
+    </div>
     <div id="mainSettings" class="main-view">
       <div class="settings-main">
           <div class="settings-pane active" id="settingsPaneConversation">
@@ -649,7 +739,7 @@
             </div>
             <div class="settings-field">
               <label data-i18n="settings_label_theme">Theme</label>
-              <div id="themePickerGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:4px">
+              <div id="themePickerGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px">
                 <button type="button" data-theme-val="light" onclick="_pickTheme('light')" class="theme-pick-btn" style="border:1px solid var(--border2);border-radius:10px;padding:10px 8px;text-align:center;cursor:pointer;background:none;transition:all .15s">
                   <div style="width:100%;height:40px;border-radius:6px;background:#fff;border:1px solid rgba(0,0,0,.12);margin-bottom:6px;display:flex;align-items:center;justify-content:center">
                     <svg width="16" height="16" fill="none" stroke="#999" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -708,7 +798,7 @@
               </label>
               <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_workspace_panel_open">When enabled, the workspace / file browser panel opens automatically with each new session. You can still close it manually at any time.</div>
             </div>
-            <button class="sm-btn" onclick="saveSettings()" style="margin-top:12px;width:100%;padding:8px;font-weight:600" data-i18n="settings_save_btn">Save Settings</button>
+            <div id="settingsAppearanceAutosaveStatus" class="settings-autosave-status" aria-live="polite"></div>
           </div>
           <div class="settings-pane" id="settingsPanePreferences">
             <div class="settings-section-head">
@@ -742,6 +832,48 @@
             </div>
             <div class="settings-field">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="settingsTtsEnabled" style="width:15px;height:15px;accent-color:var(--accent)">
+                <span data-i18n="settings_label_tts">Text-to-Speech for responses</span>
+              </label>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_tts">Show a speaker button on each assistant message to read it aloud using your browser's speech synthesis.</div>
+            </div>
+            <div class="settings-field">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="settingsTtsAutoRead" style="width:15px;height:15px;accent-color:var(--accent)">
+                <span data-i18n="settings_label_tts_auto_read">Auto-read responses aloud</span>
+              </label>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_tts_auto_read">Automatically speak each new assistant response when it finishes. Pauses when you start typing.</div>
+            </div>
+            <div class="settings-field">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="settingsVoiceModeEnabled" style="width:15px;height:15px;accent-color:var(--accent)">
+                <span data-i18n="settings_label_voice_mode">Hands-free voice mode button</span>
+              </label>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_voice_mode">Show the voice-mode button (audio waveform) next to the dictation mic. Lets you speak naturally — Hermes auto-sends after a pause and reads replies aloud. Requires a browser that supports both speech recognition and TTS.</div>
+            </div>
+            <div class="settings-field">
+              <label for="settingsTtsVoice" data-i18n="settings_label_tts_voice">Voice</label>
+              <select id="settingsTtsVoice" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px">
+                <option value="">Default system voice</option>
+              </select>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_tts_voice">Preferred voice. Populated from your browser's available voices.</div>
+            </div>
+            <div class="settings-field">
+              <label for="settingsTtsRate" data-i18n="settings_label_tts_rate">Speech rate</label>
+              <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
+                <input type="range" id="settingsTtsRate" min="0.5" max="2" step="0.1" value="1" style="flex:1;accent-color:var(--accent)">
+                <span id="settingsTtsRateValue" style="font-size:12px;color:var(--muted);min-width:32px;text-align:right">1.0x</span>
+              </div>
+            </div>
+            <div class="settings-field">
+              <label for="settingsTtsPitch" data-i18n="settings_label_tts_pitch">Speech pitch</label>
+              <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
+                <input type="range" id="settingsTtsPitch" min="0" max="2" step="0.1" value="1" style="flex:1;accent-color:var(--accent)">
+                <span id="settingsTtsPitchValue" style="font-size:12px;color:var(--muted);min-width:32px;text-align:right">1.0</span>
+              </div>
+            </div>
+            <div class="settings-field">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
                 <input type="checkbox" id="settingsNotificationsEnabled" style="width:15px;height:15px;accent-color:var(--accent)">
                 <span data-i18n="settings_label_notifications">Browser notifications</span>
               </label>
@@ -753,6 +885,20 @@
                 <span data-i18n="settings_label_token_usage">Show token usage after responses</span>
               </label>
               <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_token_usage">Displays input/output token count below each assistant reply. Also toggled with <code>/usage</code>.</div>
+            </div>
+            <div class="settings-field">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="settingsSimplifiedToolCalling" style="width:15px;height:15px;accent-color:var(--accent)">
+                <span>Compact tool activity</span>
+              </label>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Group thinking and tool calls into one collapsed activity section per assistant turn.</div>
+            </div>
+            <div class="settings-field">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="settingsApiRedact" checked style="width:15px;height:15px;accent-color:var(--accent)">
+                <span data-i18n="settings_label_api_redact">Redact sensitive data in API responses</span>
+              </label>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_api_redact">Self-hosted users can disable for transparency (not recommended for shared instances).</div>
             </div>
             <div class="settings-field">
               <label for="settingsSidebarDensity" data-i18n="settings_label_sidebar_density">Sidebar density</label>
@@ -784,9 +930,9 @@
             <div class="settings-field">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
                 <input type="checkbox" id="settingsShowCliSessions" style="width:15px;height:15px;accent-color:var(--accent)">
-                <span data-i18n="settings_label_cli_sessions">Show CLI sessions in sidebar</span>
+                <span data-i18n="settings_label_external_sessions">Show non-WebUI sessions</span>
               </label>
-              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_cli_sessions">Merges sessions from the Hermes CLI (state.db) into the session list. Click a CLI session to import it and continue the conversation.</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_external_sessions">Show conversations from CLI, Telegram, Discord, Slack, and other channels in the session list. Click to import and continue.</div>
             </div>
             <div class="settings-field">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -808,6 +954,7 @@
               <input type="text" id="settingsBotName" placeholder="Hermes" maxlength="64" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px;font-size:13px">
             </div>
             <button class="sm-btn" onclick="saveSettings()" style="margin-top:12px;width:100%;padding:8px;font-weight:600" data-i18n="settings_save_btn">Save Settings</button>
+            <div id="settingsPreferencesAutosaveStatus" class="settings-autosave-status" aria-live="polite"></div>
           </div>
           <div class="settings-pane" id="settingsPaneProviders">
             <div class="settings-section-head">
@@ -854,9 +1001,16 @@
               <label for="settingsPassword" data-i18n="settings_label_password">Access Password</label>
               <div style="font-size:11px;color:var(--muted);margin-bottom:6px" data-i18n="settings_desc_password">Enter a new password to set or change it. Leave blank to keep current setting.</div>
               <input type="password" id="settingsPassword" placeholder="Enter new password…" data-i18n-placeholder="password_placeholder" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px;font-size:13px">
+              <div id="settingsPasswordEnvLock" data-i18n="password_env_var_locked" style="display:none;margin-top:6px;padding:8px 10px;font-size:11px;color:var(--muted);background:var(--code-bg);border:1px solid var(--border2);border-radius:6px;line-height:1.45">The HERMES_WEBUI_PASSWORD environment variable is currently set and takes precedence. Unset it and restart the server to manage the password from here.</div>
             </div>
             <button class="sm-btn" id="btnDisableAuth" onclick="disableAuth()" style="margin-top:6px;width:100%;padding:8px;font-weight:600;color:#e8a030;border-color:rgba(232,160,48,.3);display:none" data-i18n="disable_auth">Disable Auth</button>
             <button class="sm-btn" id="btnSignOut" onclick="signOut()" style="margin-top:6px;width:100%;padding:8px;font-weight:600;color:var(--accent);border-color:rgba(233,69,96,.3);display:none" data-i18n="sign_out">Sign Out</button>
+            <!-- Gateway Status Section -->
+            <div class="settings-field" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
+              <label>Gateway Status</label>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Status of the Hermes gateway (Telegram, Discord, Slack, etc.)</div>
+              <div id="gatewayStatusCard"><span style="color:var(--muted);font-size:12px">Loading…</span></div>
+            </div>
             <!-- MCP Servers Section -->
             <div class="settings-field" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
               <label data-i18n="mcp_servers_title">MCP Servers</label>
@@ -930,6 +1084,10 @@
       </div>
       <pre class="preview-code" id="previewCode"></pre>
       <div class="preview-img-wrap" id="previewImgWrap" style="display:none"><img class="preview-img" id="previewImg" src="" alt=""></div>
+      <div class="preview-media-wrap" id="previewMediaWrap" style="display:none"></div>
+      <div class="preview-pdf-wrap" id="previewPdfWrap" style="display:none">
+        <iframe class="preview-pdf-frame" id="previewPdfFrame" src="" title="PDF preview"></iframe>
+      </div>
       <div class="preview-md" id="previewMd" style="display:none"></div>
       <div class="preview-html-wrap" id="previewHtmlWrap" style="display:none;flex:1;border-radius:8px;overflow:hidden;border:1px solid var(--border2)">
         <iframe id="previewHtmlIframe" style="width:100%;height:100%;border:none;background:#fff" sandbox="allow-scripts" title="HTML preview"></iframe>
@@ -977,18 +1135,18 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
-<script src="static/i18n.js" defer></script>
-<script src="static/icons.js" defer></script>
-<script src="static/ui.js" defer></script>
-<script src="static/workspace.js" defer></script>
-<script src="static/terminal.js" defer></script>
-<script src="static/sessions.js" defer></script>
-<script src="static/commands.js" defer></script>
-<script src="static/messages.js" defer></script>
-<script type="module" src="static/js/vendo-bootstrap.js"></script>
-<script src="static/panels.js" defer></script>
-<script src="static/onboarding.js" defer></script>
-<script src="static/boot.js" defer></script>
-<script src="static/js/vendo-chip.js" defer></script>
+<script src="static/i18n.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/icons.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/ui.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/workspace.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/terminal.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/sessions.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/commands.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/messages.js?v=__WEBUI_VERSION__" defer></script>
+<script type="module" src="static/js/vendo-bootstrap.js?v=__WEBUI_VERSION__"></script>
+<script src="static/panels.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/onboarding.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/boot.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/js/vendo-chip.js?v=__WEBUI_VERSION__" defer></script>
 </body>
 </html>
