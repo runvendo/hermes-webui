@@ -274,9 +274,14 @@ async function _renderVendoPanelSdk() {
     });
   }
 
-  // Propagate connect/disconnect events to dependent UIs (model picker etc)
-  body.addEventListener('vendo-connected', () => document.dispatchEvent(new CustomEvent('vendo:connection-changed')));
-  body.addEventListener('vendo-disconnected', () => document.dispatchEvent(new CustomEvent('vendo:connection-changed')));
+  // Propagate connect/disconnect events to dependent UIs (model picker etc).
+  // Attach once per body so a re-render (triggered by vendo:connection-changed)
+  // doesn't stack duplicate listeners and fan out N events per future connect.
+  if (body.dataset.vendoListenersAttached !== '1') {
+    body.addEventListener('vendo-connected', () => document.dispatchEvent(new CustomEvent('vendo:connection-changed')));
+    body.addEventListener('vendo-disconnected', () => document.dispatchEvent(new CustomEvent('vendo:connection-changed')));
+    body.dataset.vendoListenersAttached = '1';
+  }
 
   body.dataset.vendoRendered = '1';
 }

@@ -122,6 +122,9 @@ const LOCALES = {
     model_group_configured: 'Configured',
     model_scope_advisory: 'Applies to this conversation from your next message.',
     model_scope_toast: 'Applies to this conversation from your next message.',
+    model_picker_empty_title: 'No AI providers connected yet.',
+    model_picker_empty_sub: 'Connect an AI provider in the Vendo panel to start sending messages.',
+    model_picker_empty_cta: '+ Connect a provider via Vendo',
     // commands.js
     cmd_clear: 'Clear conversation messages',
     cmd_compress: 'Manually compress conversation context (usage: /compress [focus topic])',
