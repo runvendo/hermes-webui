@@ -515,6 +515,9 @@ function _buildVendoSdkCard(it, baseUrl){
   if(it.name) card.setAttribute('name', it.name);
   if(baseUrl) card.setAttribute('base-url', baseUrl);
   card.setAttribute('connect-origin', 'https://vendo.run');
+  // Onboarding renders over the dark hermes gradient; glass-dark frosts the card
+  // so the gradient bleeds through instead of clipping it with an opaque surface.
+  card.setAttribute('theme', 'glass-dark');
   if(it.logoUrl) card.setAttribute('logo-url', it.logoUrl);
   if(it.brandColor) card.setAttribute('brand-color', it.brandColor);
   return card;

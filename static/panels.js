@@ -214,6 +214,10 @@ async function _renderVendoPanelSdk() {
       card.setAttribute('slug', it.slug);
       if (cardBaseUrl) card.setAttribute('base-url', cardBaseUrl);
       card.setAttribute('connect-origin', VENDO_DASHBOARD_ORIGIN);
+      // The hermes admin / settings panels render over a dark gradient background;
+      // glass-dark frosts the card so the gradient bleeds through instead of being
+      // clipped by the default opaque-white surface.
+      card.setAttribute('theme', 'glass-dark');
       // Seed branding upfront — the card's own /connections fetch is deployment-scoped
       // and may not include this slug until the user connects, so attributes drive
       // the initial render.
@@ -231,6 +235,7 @@ async function _renderVendoPanelSdk() {
       card.setAttribute('slug', it.slug);
       if (cardBaseUrl) card.setAttribute('base-url', cardBaseUrl);
       card.setAttribute('connect-origin', VENDO_DASHBOARD_ORIGIN);
+      card.setAttribute('theme', 'glass-dark');
       if (it.logoUrl) card.setAttribute('logo-url', it.logoUrl);
       if (it.brandColor) card.setAttribute('brand-color', it.brandColor);
       intEl.appendChild(card);
