@@ -1435,8 +1435,11 @@ def _run_agent_streaming(
     # Fail-soft: any SDK error yields an empty block.
     _vendo_prompt_block = ""
     try:
-        import vendo as _vendo
-        _conns = _vendo.connections.list()
+        # vendo-sdk v1.0.0+ shadows the module-level `vendo.connections` with
+        # a new submodule (instance-level ConnectionsAPI); reach into
+        # `vendo_sdk.connections` directly so `.list()` still works.
+        import vendo_sdk.connections as _vc
+        _conns = _vc.list()
         _connected = [c for c in _conns if getattr(c, "status", "") == "connected"]
         if _connected:
             _lines = ["## Vendo connections (live)", ""]

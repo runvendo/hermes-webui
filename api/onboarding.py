@@ -12,7 +12,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from api.auth import is_auth_enabled
-from vendo import connections as vendo_connections
+# Reach into vendo_sdk.connections directly: vendo-sdk v1.0.0+ added a new
+# vendo/connections.py submodule (instance-level ConnectionsAPI) which
+# shadows `from vendo import connections as connections` at import time and
+# strips the legacy module-level surface (.list, .connected_slugs, …).
+# The legacy module under vendo_sdk.connections still has those helpers
+# and is what we actually need here.
+import vendo_sdk.connections as vendo_connections
 from vendo import sso as vendo_sso
 from api.config import (
     DEFAULT_MODEL,
