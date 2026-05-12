@@ -431,17 +431,21 @@ async function populateModelDropdown(){
     const _modelsRes=await fetch(new URL('api/models',document.baseURI||location.href).href,{credentials:'include'});
     if(_redirectIfUnauth(_modelsRes)) return;
     const data=await _modelsRes.json();
-    if(!data.groups||!data.groups.length) return; // keep HTML defaults
-    // Store active provider globally so the send path can warn on mismatch
+    // Store active provider globally so the send path can warn on mismatch.
+    // Set BEFORE the no-groups branch so dependent UI (chip, mismatch warnings)
+    // still sees the right value when only Vendo decoration populates the picker.
     window._activeProvider=data.active_provider||null;
-    // Store default model so newSession() can apply it (#872).
-    // Per-page-load — not synced across browser tabs.
     window._defaultModel=data.default_model||null;
     window._configuredModelBadges=data.configured_model_badges||{};
-    // Clear existing options
+    const _hasStaticGroups=!!(data.groups&&data.groups.length);
+    // Wipe stale HTML defaults regardless of whether /api/models returned groups.
+    // On a Vendo deployment, the picker can still be populated by
+    // _decorateVendoManagedModels below (reads /api/providers) — letting the
+    // static <optgroup> in index.html survive would just confuse the user with
+    // provider names they haven't actually connected.
     sel.innerHTML='';
     _dynamicModelLabels={};
-    for(const g of data.groups){
+    for(const g of (_hasStaticGroups ? data.groups : [])){
       const og=document.createElement('optgroup');
       og.label=g.provider;
       if(g.provider_id) og.dataset.provider=g.provider_id;
