@@ -149,7 +149,27 @@ function _consumeSettingsTargetPanel(fallback = 'chat') {
 }
 
 async function _renderVendoPanelSdk() {
-  if (!window.Vendo) return;
+  // vendo-bootstrap.js is loaded as <script type="module">, so its top-level
+  // `import` statements complete after DOMContentLoaded — if the user clicks
+  // the Vendo tab faster than the SDK module loads, `window.Vendo` is still
+  // undefined when this function first fires. The original `if (!window.Vendo)
+  // return` left the panel blank with no recovery. Poll for up to 10 seconds
+  // before giving up so the panel renders cleanly even on the slow path.
+  let _vendoReadyAttempts = 0;
+  while (!window.Vendo && _vendoReadyAttempts < 50) {
+    await new Promise((r) => setTimeout(r, 200));
+    _vendoReadyAttempts++;
+  }
+  if (!window.Vendo) {
+    const provEmpty = document.getElementById('vendoPanelProvidersEmpty');
+    if (provEmpty) {
+      provEmpty.textContent = 'Vendo SDK did not load within 10 seconds. Check the browser console for errors.';
+      provEmpty.style.display = '';
+    }
+    const intEmpty = document.getElementById('vendoPanelIntegrationsEmpty');
+    if (intEmpty) intEmpty.style.display = '';
+    return;
+  }
   const body = document.getElementById('panelVendoBody');
   if (!body || body.dataset.vendoRendered === '1') return;
 
