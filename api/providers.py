@@ -275,10 +275,15 @@ def _provider_is_oauth(provider_id: str) -> bool:
 
 
 def _managed_slugs_now() -> frozenset:
-    """Indirection for tests — resolves Vendo-managed slugs from the SDK."""
+    """Indirection for tests — resolves Vendo-managed slugs from the SDK.
+
+    vendo-sdk v1.0.0+ shadows the module-level `vendo.connections` surface
+    with a new submodule (instance-level ConnectionsAPI), so we reach into
+    `vendo_sdk.connections` directly to keep `connected_slugs()` reachable.
+    """
     try:
-        import vendo
-        return frozenset(vendo.connections.connected_slugs())
+        import vendo_sdk.connections as _vc
+        return frozenset(_vc.connected_slugs())
     except Exception:
         return frozenset()
 
@@ -293,10 +298,11 @@ def _vendo_ai_connections() -> dict[str, str | None]:
     as "no Vendo AI providers visible" and skips the synthesis branch).
     """
     try:
-        import vendo as _vendo
+        # Reach into vendo_sdk.connections — see _managed_slugs_now for why.
+        import vendo_sdk.connections as _vc
         return {
             c.slug: c.base_url
-            for c in _vendo.connections.list()
+            for c in _vc.list()
             if getattr(c, "category", None) == "ai"
         }
     except Exception:
