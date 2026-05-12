@@ -259,10 +259,28 @@ function _wireModelPickerConnSubscription(){
   if(_modelPickerConnSubscribed) return;
   _modelPickerConnSubscribed=true;
   document.addEventListener('vendo:connection-changed',()=>{
+    // Refresh provider metadata + decorate <select> with any newly-bound Vendo
+    // providers so their models appear in the picker without a page reload.
     _ensureModelPickerMetadata(true).then(()=>{
-      const dd=document.getElementById('composerModelDropdown');
-      if(dd && dd.classList.contains('open')) renderModelDropdown();
+      const sel=document.getElementById('modelSelect');
+      const after=()=>{
+        const dd=document.getElementById('composerModelDropdown');
+        if(dd && dd.classList.contains('open')) renderModelDropdown();
+      };
+      if(sel && typeof _decorateVendoManagedModels==='function'){
+        _decorateVendoManagedModels(sel).then(after).catch(after);
+      } else {
+        after();
+      }
     });
+    // Rebuild the Vendo sidebar so the just-connected card flips to "Connected".
+    // The SDK card's internal SSE doesn't always reflect popup completion, so we
+    // tear down and re-render from a fresh integrations.list() call.
+    if(typeof _renderVendoPanelSdk==='function'){
+      const body=document.getElementById('panelVendoBody');
+      if(body) body.dataset.vendoRendered='';
+      _renderVendoPanelSdk();
+    }
   });
 }
 
